@@ -71,27 +71,6 @@
   <footer><span id="ver"></span></footer>
 </div>
 
-<dialog class="login" id="login" aria-labelledby="login-title">
-  <div class="stripe"></div>
-  <form id="login-email-form" method="dialog">
-    <h2 id="login-title">Вхід</h2>
-    <p id="login-reason">Введіть пошту — надішлемо код входу.</p>
-    <label for="login-email">Пошта</label>
-    <input id="login-email" type="email" autocomplete="email" required placeholder="name@example.com">
-    <button class="btn" type="submit">Отримати код</button>
-    <div class="row-actions"><button type="button" class="link-btn" id="login-cancel">Скасувати</button></div>
-  </form>
-  <form id="login-code-form" method="dialog" hidden>
-    <h2>Код із листа</h2>
-    <p>Надіслали 6 цифр на <b id="login-sent-to"></b>. Код дійсний 10 хвилин.</p>
-    <div class="dev-hint" id="login-dev" hidden></div>
-    <label for="login-code">Код</label>
-    <input id="login-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required>
-    <button class="btn" type="submit">Увійти</button>
-    <div class="row-actions"><button type="button" class="link-btn" id="login-back">Інша пошта</button></div>
-  </form>
-  <p class="msg err" id="login-msg" role="alert" style="padding: 0 20px 16px"></p>
-</dialog>
 
 <script src="/auth.js"></script>
 <script src="/app.js"></script>
