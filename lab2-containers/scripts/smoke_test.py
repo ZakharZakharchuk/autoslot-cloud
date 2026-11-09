@@ -37,13 +37,17 @@ class User:
         except urllib.error.HTTPError as e:
             return e.code, _json(e.read()), e.headers
 
-    def login(self, email):
+    def login(self, email, password=None):
+        """Реєстрація (або відновлення пароля) через код з пошти; з password — ще й задає пароль."""
         st, data, _ = self.call("POST", "/api/auth/request-code", {"email": email})
         if st == 429:
             sys.exit(f"FAIL вхід {email}: ліміт кодів (3 на адресу за 15 хв або 5 на хвилину з IP), зачекайте")
         if st != 200 or "devCode" not in (data or {}):
             sys.exit("FAIL вхід: потрібен AUTH_DEV_MODE=true без SMTP на сервері")
-        st, _, _ = self.call("POST", "/api/auth/verify", {"email": email, "code": data["devCode"]})
+        body = {"email": email, "code": data["devCode"]}
+        if password:
+            body["password"] = password
+        st, _, _ = self.call("POST", "/api/auth/verify", body)
         return st
 
 
@@ -61,7 +65,7 @@ def step(name, ok):
 
 
 stamp = int(time.time()) % 100000
-anon, anna, bob, admin = User(), User(), User(), User()
+anon, anna, bob, admin, carl = User(), User(), User(), User(), User()
 day = date.today() + timedelta(days=1)
 while day.weekday() != 2:  # середа — працюють усі майстри
     day += timedelta(days=1)
@@ -122,4 +126,28 @@ st, notes2, _ = anna.call("GET", "/api/notifications")
 step("клієнт отримав лист про скасування", "CANCELLATION" in [n["kind"] for n in notes2])
 step("вихід завершує сесію", anna.call("POST", "/api/auth/logout")[0] == 200
      and anna.call("GET", "/api/bookings")[0] == 401)
+
+# --- реєстрація з паролем і кілька послуг за один візит ---
+carl_email, carl_pass = f"carl{stamp}@example.com", f"pass-{stamp}-word"
+step("реєстрація: код з пошти + пароль", carl.login(carl_email, carl_pass) == 200)
+carl.call("POST", "/api/auth/logout")
+step("невірний пароль -> 400", carl.call("POST", "/api/auth/login", {"email": carl_email, "password": "wrong-pass"})[0] == 400)
+step("вхід за паролем без листа", carl.call("POST", "/api/auth/login", {"email": carl_email, "password": carl_pass})[0] == 200
+     and carl.call("GET", "/api/auth/me")[1]["email"] == carl_email)
+combo = None
+for i in range(1, 29):  # шукаємо день, де в майстра є вікно на обидві послуги підряд
+    d = date.today() + timedelta(days=i)
+    st, combo_slots, _ = anon.call("GET", f"/api/availability?serviceIds=oil-change,diagnostics&date={d}")
+    if st == 200 and combo_slots:
+        combo = combo_slots[-1]
+        break
+step("вільні вікна для двох послуг підряд", combo is not None)
+st, two, _ = carl.call("POST", "/api/bookings", {
+    "serviceIds": ["oil-change", "diagnostics"], "masterId": combo["masterId"], "start": combo["start"],
+    "clientName": "Карл", "phone": "+380671234567"})
+step(f"один запис на дві послуги ({two.get('serviceName') if st == 201 else st})",
+     st == 201 and two["serviceIds"] == ["oil-change", "diagnostics"] and two["priceUah"] == 650 + 700)
+st, feed, _ = admin.call("GET", "/api/admin/activity")
+step("запис видно в стрічці активності адміна", st == 200 and any(a["booking"]["id"] == two["id"] for a in feed))
+carl.call("POST", f"/api/bookings/{two['id']}/cancel")
 print("Усі перевірки пройдено.")
