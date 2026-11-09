@@ -3,6 +3,8 @@
 Власник даних про зайнятість майстрів (ADR-001 з архітектури AutoSlot).
 Утримання слоту з TTL та ідемпотентним ключем (ADR-003).
 Споживає події BookingCreated (hold -> CONFIRMED) і BookingCancelled (-> RELEASED).
+Кілька послуг за один візит (serviceIds=a,b) виконує один майстер підряд, тож для
+них шукається одне вікно сумарної тривалості в майстра, який уміє всі ці послуги.
 """
 import logging
 import os
@@ -55,7 +57,7 @@ class Reservation(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
     idempotency_key: Mapped[str] = mapped_column(String(80), unique=True)
     master_id: Mapped[str] = mapped_column(String(40), index=True)
-    service_id: Mapped[str] = mapped_column(String(40))
+    service_id: Mapped[str] = mapped_column(String(200))  # одна послуга або кілька через кому
     start: Mapped[datetime] = mapped_column(DateTime, index=True)
     end: Mapped[datetime] = mapped_column(DateTime)
     status: Mapped[str] = mapped_column(String(12))  # HELD | CONFIRMED | RELEASED | EXPIRED
@@ -63,6 +65,7 @@ class Reservation(Base):
     booking_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
 
 
+MIGRATIONS = ("ALTER TABLE reservations ALTER COLUMN service_id TYPE VARCHAR(200)",)
 SCHEDULES = [("master-1", 9, 18, "0,1,2,3,4"), ("master-2", 8, 17, "0,1,2,3,4,5"), ("master-3", 10, 19, "1,2,3,4,5")]
 
 
@@ -103,7 +106,7 @@ def expire_holds_forever(stop: threading.Event) -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     wait_for_db(engine)
-    init_schema(engine, Base.metadata, seed, "availability")
+    init_schema(engine, Base.metadata, seed, "availability", MIGRATIONS)
     stop = EventBus().start_consumer("availability", handle_event)
     threading.Thread(target=expire_holds_forever, args=(stop,), daemon=True).start()
     yield
@@ -119,13 +122,14 @@ def session():
         yield s
 
 
-def catalog_service(service_id: str) -> dict:
+def catalog_service(service_ids: str) -> dict:
+    """Послуга або кілька послуг через кому: сумарні тривалість і ціна, спільні майстри."""
     try:
-        r = catalog_http.get(f"/internal/services/{service_id}")
+        r = catalog_http.get("/internal/bundle", params={"ids": service_ids})
     except httpx.HTTPError as exc:
         raise HTTPException(503, "Каталог тимчасово недоступний") from exc
-    if r.status_code == 404:
-        raise HTTPException(404, "Послугу не знайдено")
+    if r.status_code in (404, 422):
+        raise HTTPException(r.status_code, r.json().get("detail", "Послугу не знайдено"))
     r.raise_for_status()
     return r.json()
 
@@ -145,9 +149,23 @@ def health(s=Depends(session)):
     return {"service": SERVICE_NAME, "status": "ok", "version": VERSION}
 
 
+DAY_NAMES = ["пн", "вт", "ср", "чт", "пт", "сб", "нд"]
+
+
+@app.get("/api/availability/schedules")
+def schedules(s=Depends(session)):
+    """Робочі графіки майстрів (для адмін-панелі)."""
+    return [{"masterId": w.master_id, "startHour": w.start_hour, "endHour": w.end_hour,
+             "days": [int(d) for d in w.days.split(",")],
+             "daysText": ", ".join(DAY_NAMES[int(d)] for d in w.days.split(","))}
+            for w in s.scalars(select(WorkSchedule).order_by(WorkSchedule.master_id))]
+
+
 @app.get("/api/availability")
-def availability(serviceId: str, date: date, s=Depends(session)):
-    svc = catalog_service(serviceId)
+def availability(date: date, serviceId: str | None = None, serviceIds: str | None = None, s=Depends(session)):
+    if not (serviceIds or serviceId):
+        raise HTTPException(422, "Оберіть послугу")
+    svc = catalog_service(serviceIds or serviceId)
     duration = timedelta(minutes=svc["durationMin"])
     now = now_local()
     result = []
@@ -165,7 +183,7 @@ def availability(serviceId: str, date: date, s=Depends(session)):
 
 
 class HoldIn(BaseModel):
-    serviceId: str
+    serviceId: str  # одна послуга або кілька через кому
     masterId: str
     start: datetime
     idempotencyKey: str
@@ -182,7 +200,7 @@ def create_hold(body: HoldIn, s=Depends(session)):
     svc = catalog_service(body.serviceId)
     master = next((m for m in svc["masters"] if m["id"] == body.masterId), None)
     if not master:
-        raise HTTPException(422, "Цей майстер не виконує обрану послугу")
+        raise HTTPException(422, "Цей майстер не виконує обрані послуги")
 
     existing = s.scalar(select(Reservation).where(Reservation.idempotency_key == body.idempotencyKey))
     if existing:  # повторний запит з тим самим ключем — повертаємо той самий hold
@@ -203,7 +221,7 @@ def create_hold(body: HoldIn, s=Depends(session)):
         raise HTTPException(409, "Цей час уже зайнятий — оберіть інший слот")
 
     r = Reservation(id=str(uuid.uuid4()), idempotency_key=body.idempotencyKey, master_id=body.masterId,
-                    service_id=body.serviceId, start=start, end=end, status="HELD",
+                    service_id=svc["id"], start=start, end=end, status="HELD",
                     expires_at=now_local() + HOLD_TTL)
     s.add(r)
     s.commit()
