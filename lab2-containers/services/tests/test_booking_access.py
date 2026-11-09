@@ -21,11 +21,17 @@ class FakeResponse:
         return self._data
 
 
+holds = []
+
+
 def fake_hold(url, json):
+    holds.append(json)
     start = datetime.fromisoformat(json["start"])
-    return FakeResponse({"holdId": json["idempotencyKey"], "serviceId": json["serviceId"], "serviceName": "Діагностика",
-                         "masterId": json["masterId"], "masterName": "Олег", "priceUah": 700,
-                         "start": start.isoformat(), "end": (start + timedelta(minutes=50)).isoformat()})
+    n = len(json["serviceId"].split(","))
+    return FakeResponse({"holdId": json["idempotencyKey"], "serviceId": json["serviceId"],
+                         "serviceName": " + ".join(["Діагностика"] * n),
+                         "masterId": json["masterId"], "masterName": "Олег", "priceUah": 700 * n,
+                         "start": start.isoformat(), "end": (start + timedelta(minutes=50 * n)).isoformat()})
 
 
 booking.availability_http.post = fake_hold          # без справжнього availability-service
@@ -62,7 +68,7 @@ def test_each_user_sees_only_own_bookings():
 
 
 def test_admin_endpoints_forbidden_for_client():
-    for path in ("/api/admin/bookings", "/api/admin/stats", "/api/admin/audit"):
+    for path in ("/api/admin/bookings", "/api/admin/stats", "/api/admin/audit", "/api/admin/activity"):
         assert client.get(path, headers=ANNA).status_code == 403
         assert client.get(path).status_code == 401
 
@@ -80,3 +86,29 @@ def test_admin_sees_all_and_cancel_is_audited():
 
     stats = client.get("/api/admin/stats", headers=ADMIN).json()
     assert stats[0]["confirmed"] >= 1 and stats[0]["cancelled"] >= 1
+
+
+def test_several_services_in_one_booking():
+    start = (datetime.now() + timedelta(days=4)).replace(hour=9, minute=0, second=0, microsecond=0)
+    r = client.post("/api/bookings", headers=ANNA, json={
+        "serviceIds": ["oil-change", "brake-pads"], "masterId": "master-1", "start": start.isoformat(),
+        "clientName": "Тест", "phone": "+380671234567"})
+    assert r.status_code == 201
+    assert holds[-1]["serviceId"] == "oil-change,brake-pads"  # один hold на весь візит
+    assert r.json()["serviceIds"] == ["oil-change", "brake-pads"] and r.json()["priceUah"] == 1400
+
+
+def test_booking_needs_a_service():
+    start = (datetime.now() + timedelta(days=4)).replace(hour=15, minute=0, second=0, microsecond=0)
+    r = client.post("/api/bookings", headers=ANNA, json={
+        "masterId": "master-1", "start": start.isoformat(), "clientName": "Тест", "phone": "+380671234567"})
+    assert r.status_code == 422
+
+
+def test_activity_feed_shows_new_and_cancelled():
+    b = book(ANNA, 16).json()
+    client.post(f"/api/bookings/{b['id']}/cancel", headers=ANNA)
+    feed = client.get("/api/admin/activity", headers=ADMIN).json()
+    mine = [(a["type"], a["actor"]) for a in feed if a["booking"]["id"] == b["id"]]
+    assert ("CREATED", "anna@example.com") in mine and ("CANCELLED", "anna@example.com") in mine
+    assert feed == sorted(feed, key=lambda a: a["at"], reverse=True)

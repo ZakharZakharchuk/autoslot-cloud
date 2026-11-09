@@ -8,6 +8,8 @@
   клієнт  — створює записи, бачить і скасовує лише свої (за email із сесії);
   адмін   — бачить усі записи (/api/admin/*), може скасувати будь-який;
             кожна дія адміна записується в журнал admin_actions.
+
+Один запис може містити кілька послуг (serviceIds): їх виконує один майстер підряд.
 """
 import os
 import uuid
@@ -17,7 +19,7 @@ from datetime import date, datetime, timedelta, timezone
 import httpx
 from prometheus_client import Counter
 from fastapi import Depends, FastAPI, Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import DateTime, Integer, String, func, or_, select
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -51,8 +53,8 @@ class Booking(Base):
     phone: Mapped[str] = mapped_column(String(32))
     # Назви послуги/майстра зберігаються як знімок на момент бронювання,
     # щоб читати історію без синхронних викликів до catalog-service.
-    service_id: Mapped[str] = mapped_column(String(40))
-    service_name: Mapped[str] = mapped_column(String(120))
+    service_id: Mapped[str] = mapped_column(String(200))    # одна послуга або кілька через кому
+    service_name: Mapped[str] = mapped_column(String(400))  # «Заміна масла + Балансування коліс»
     master_id: Mapped[str] = mapped_column(String(40))
     master_name: Mapped[str] = mapped_column(String(120))
     start: Mapped[datetime] = mapped_column(DateTime)
@@ -60,6 +62,8 @@ class Booking(Base):
     price_uah: Mapped[int] = mapped_column(Integer)
     status: Mapped[str] = mapped_column(String(12), default="CONFIRMED")
     created_at: Mapped[datetime] = mapped_column(DateTime)
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    cancelled_by: Mapped[str | None] = mapped_column(String(254), nullable=True)
 
 
 class AdminAction(Base):
@@ -72,6 +76,15 @@ class AdminAction(Base):
     at: Mapped[datetime] = mapped_column(DateTime)
 
 
+# Бази, створені попередньою версією: ширші колонки для кількох послуг і час скасування.
+MIGRATIONS = (
+    "ALTER TABLE bookings ALTER COLUMN service_id TYPE VARCHAR(200)",
+    "ALTER TABLE bookings ALTER COLUMN service_name TYPE VARCHAR(400)",
+    "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancelled_at TIMESTAMP",
+    "ALTER TABLE bookings ADD COLUMN IF NOT EXISTS cancelled_by VARCHAR(254)",
+)
+
+
 def utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
@@ -79,7 +92,7 @@ def utcnow() -> datetime:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     wait_for_db(engine)
-    init_schema(engine, Base.metadata, lock_name="booking")
+    init_schema(engine, Base.metadata, lock_name="booking", migrations=MIGRATIONS)
     yield
 
 
@@ -97,10 +110,11 @@ def norm_phone(p: str) -> str:
 
 
 def out(b: Booking) -> dict:
-    return {"id": b.id, "serviceId": b.service_id, "serviceName": b.service_name, "masterId": b.master_id,
+    return {"id": b.id, "serviceId": b.service_id, "serviceIds": b.service_id.split(","),
+            "serviceName": b.service_name, "masterId": b.master_id,
             "masterName": b.master_name, "start": b.start, "end": b.end, "priceUah": b.price_uah,
             "status": b.status, "clientName": b.client_name, "phone": b.phone, "userEmail": b.user_email,
-            "createdAt": b.created_at}
+            "createdAt": b.created_at, "cancelledAt": b.cancelled_at}
 
 
 def event_payload(b: Booking) -> dict:
@@ -111,11 +125,22 @@ def event_payload(b: Booking) -> dict:
 
 
 class BookingIn(BaseModel):
-    serviceId: str
+    serviceId: str | None = None                                     # одна послуга
+    serviceIds: list[str] | None = Field(None, min_length=1, max_length=6)  # або кілька за один візит
     masterId: str
     start: datetime
     clientName: str = Field(min_length=2, max_length=120)
     phone: str = Field(pattern=r"^\+?[0-9 ()-]{10,20}$")
+
+    @model_validator(mode="after")
+    def need_service(self):
+        if not self.serviceIds and not self.serviceId:
+            raise ValueError("Оберіть послугу")
+        return self
+
+    @property
+    def service_key(self) -> str:
+        return ",".join(self.serviceIds) if self.serviceIds else self.serviceId
 
 
 @app.get("/health")
@@ -130,7 +155,7 @@ def create_booking(body: BookingIn, s=Depends(session), user: Identity = Depends
     key = idempotency_key or str(uuid.uuid4())
     try:
         r = availability_http.post("/internal/holds", json={
-            "serviceId": body.serviceId, "masterId": body.masterId,
+            "serviceId": body.service_key, "masterId": body.masterId,
             "start": body.start.isoformat(), "idempotencyKey": key})
     except httpx.HTTPError as exc:
         raise HTTPException(503, "Сервіс розкладу тимчасово недоступний") from exc
@@ -153,7 +178,8 @@ def create_booking(body: BookingIn, s=Depends(session), user: Identity = Depends
     s.add(b)
     s.commit()
     bus.publish("BookingCreated", event_payload(b))
-    BOOKINGS_CREATED.labels(b.service_id).inc()
+    for sid in b.service_id.split(","):
+        BOOKINGS_CREATED.labels(sid).inc()
     return out(b)
 
 
@@ -171,7 +197,7 @@ def cancel(booking_id: str, s=Depends(session), user: Identity = Depends(current
     if not b or (b.user_email != user.email and not user.is_admin):
         raise HTTPException(404, "Бронювання не знайдено")
     if b.status != "CANCELLED":
-        b.status = "CANCELLED"
+        b.status, b.cancelled_at, b.cancelled_by = "CANCELLED", utcnow(), user.email
         if user.is_admin and b.user_email != user.email:
             s.add(AdminAction(id=str(uuid.uuid4()), admin_email=user.email, action="CANCEL_BOOKING",
                               booking_id=b.id, at=utcnow()))
@@ -231,3 +257,17 @@ def admin_stats(dateFrom: date | None = None, dateTo: date | None = None,
 def admin_audit(s=Depends(session), admin: Identity = Depends(admin_user)):
     rows = s.scalars(select(AdminAction).order_by(AdminAction.at.desc()).limit(100))
     return [{"adminEmail": a.admin_email, "action": a.action, "bookingId": a.booking_id, "at": a.at} for a in rows]
+
+
+@app.get("/api/admin/activity")
+def admin_activity(limit: int = 100, s=Depends(session), admin: Identity = Depends(admin_user)):
+    """Стрічка подій: нові записи, скасування клієнтами й адміністраторами, від нових до старих."""
+    limit = max(1, min(limit, 300))
+    created = s.scalars(select(Booking).order_by(Booking.created_at.desc()).limit(limit))
+    cancelled = s.scalars(select(Booking).where(Booking.cancelled_at.is_not(None))
+                          .order_by(Booking.cancelled_at.desc()).limit(limit))
+    items = [{"type": "CREATED", "at": b.created_at, "actor": b.user_email, "booking": out(b)} for b in created]
+    items += [{"type": "CANCELLED_BY_ADMIN" if b.cancelled_by != b.user_email else "CANCELLED",
+               "at": b.cancelled_at, "actor": b.cancelled_by or b.user_email, "booking": out(b)} for b in cancelled]
+    items.sort(key=lambda x: x["at"], reverse=True)
+    return items[:limit]
