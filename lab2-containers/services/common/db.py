@@ -37,13 +37,17 @@ def wait_for_db(engine, attempts: int = 30, delay: float = 1.0) -> None:
     raise RuntimeError("Не вдалося під'єднатися до БД")
 
 
-def init_schema(engine, metadata, seed=None, lock_name: str = "schema") -> None:
+def init_schema(engine, metadata, seed=None, lock_name: str = "schema", migrations=()) -> None:
     """Створює таблиці й початкові дані так, щоб кілька реплік не заважали одна одній.
 
     Репліки одного сервісу стартують одночасно. Без захисту обидві спробували б
     створити таблиці й вставити ті самі початкові дані в порожню БД, і одна впала б
     на дублікаті ключа. Тому перша репліка бере advisory lock PostgreSQL, робить
     роботу й відпускає його; друга чекає на блокуванні й далі бачить готову схему.
+
+    migrations — SQL для баз, створених попередньою версією (create_all не додає
+    нових колонок до наявних таблиць). Кожен вираз має бути ідемпотентним
+    (ADD COLUMN IF NOT EXISTS тощо). У SQLite таблиці щоразу створюються з нуля.
     """
     if engine.dialect.name != "postgresql":  # SQLite (тести, локальний запуск) — одна репліка
         metadata.create_all(engine)
@@ -56,6 +60,9 @@ def init_schema(engine, metadata, seed=None, lock_name: str = "schema") -> None:
         conn.execute(text("SELECT pg_advisory_lock(:k)"), {"k": lock_id})
         try:
             metadata.create_all(engine)
+            for sql in migrations:
+                conn.execute(text(sql))
+            conn.commit()
             if seed:
                 seed()
         finally:
