@@ -22,53 +22,60 @@
   <div id="gate" class="notice" hidden></div>
 
   <main id="panel" hidden>
-    <form class="filters" id="filters">
-      <div><label for="f-from">З дати</label><input id="f-from" type="date"></div>
-      <div><label for="f-to">По дату</label><input id="f-to" type="date"></div>
-      <div><label for="f-master">Майстер</label><select id="f-master"><option value="">усі</option></select></div>
-      <div><label for="f-status">Статус</label>
-        <select id="f-status"><option value="">усі</option><option value="CONFIRMED">підтверджені</option><option value="CANCELLED">скасовані</option></select></div>
-      <div><label for="f-q">Пошук</label><input id="f-q" type="search" placeholder="ім'я, пошта, телефон"></div>
-      <div><button class="btn" type="submit" style="font-size:18px;padding:10px">Показати</button></div>
-    </form>
+    <nav class="tabs" role="tablist" aria-label="Розділи">
+      <a href="#bookings" role="tab" id="tab-btn-bookings" aria-controls="tab-bookings">Записи</a>
+      <a href="#masters" role="tab" id="tab-btn-masters" aria-controls="tab-masters">Майстри</a>
+      <a href="#activity" role="tab" id="tab-btn-activity" aria-controls="tab-activity">Активність</a>
+    </nav>
 
-    <h2>Завантаженість майстрів</h2>
-    <div class="stats" id="stats"></div>
+    <!-- ---- Записи ---- -->
+    <section id="tab-bookings" role="tabpanel" aria-labelledby="tab-btn-bookings" hidden>
+      <form class="filters" id="filters">
+        <div><label for="f-from">З дати</label><input id="f-from" type="date"></div>
+        <div><label for="f-to">По дату</label><input id="f-to" type="date"></div>
+        <div><label for="f-master">Майстер</label><select id="f-master"><option value="">усі</option></select></div>
+        <div><label for="f-status">Статус</label>
+          <select id="f-status"><option value="">усі</option><option value="CONFIRMED">підтверджені</option><option value="CANCELLED">скасовані</option></select></div>
+        <div><label for="f-q">Пошук</label><input id="f-q" type="search" placeholder="ім'я, пошта, телефон"></div>
+        <div><button class="btn" type="submit" style="font-size:18px;padding:10px">Показати</button></div>
+      </form>
 
-    <h2>Записи <span class="muted" id="count" style="font-size:18px"></span></h2>
-    <div class="table-wrap">
-      <table class="data">
-        <thead><tr><th>Дата й час</th><th>Послуга</th><th>Майстер</th><th>Клієнт</th><th>Пошта</th><th>Телефон</th><th>Сума</th><th>Статус</th><th></th></tr></thead>
-        <tbody id="rows"></tbody>
-      </table>
-    </div>
+      <div class="stats" id="summary"></div>
 
-    <h2 style="margin-top:28px">Журнал дій адміністраторів</h2>
-    <ul class="notes" id="audit"></ul>
+      <h2>Записи <span class="muted" id="count" style="font-size:18px"></span></h2>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>Дата й час</th><th>Послуги</th><th>Майстер</th><th>Клієнт</th><th>Пошта</th><th>Телефон</th><th>Сума</th><th>Статус</th><th></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ---- Майстри ---- -->
+    <section id="tab-masters" role="tabpanel" aria-labelledby="tab-btn-masters" hidden>
+      <form class="filters" id="m-filters">
+        <div><label for="m-from">З дати</label><input id="m-from" type="date"></div>
+        <div><label for="m-to">По дату</label><input id="m-to" type="date"></div>
+        <div><button class="btn" type="submit" style="font-size:18px;padding:10px">Показати</button></div>
+      </form>
+      <div class="cards" id="master-cards"></div>
+    </section>
+
+    <!-- ---- Активність ---- -->
+    <section id="tab-activity" role="tabpanel" aria-labelledby="tab-btn-activity" hidden>
+      <div class="filters" style="grid-template-columns: minmax(150px, 260px)">
+        <div><label for="a-type">Показати</label>
+          <select id="a-type">
+            <option value="">усі події</option>
+            <option value="CREATED">нові записи</option>
+            <option value="CANCELLED">скасування клієнтами</option>
+            <option value="CANCELLED_BY_ADMIN">дії адміністраторів</option>
+          </select></div>
+      </div>
+      <ol class="feed" id="activity"></ol>
+    </section>
   </main>
 </div>
-
-<dialog class="login" id="login" aria-labelledby="login-title">
-  <div class="stripe"></div>
-  <form id="login-email-form" method="dialog">
-    <h2 id="login-title">Вхід</h2>
-    <p id="login-reason">Введіть пошту — надішлемо код входу.</p>
-    <label for="login-email">Пошта</label>
-    <input id="login-email" type="email" autocomplete="email" required placeholder="name@example.com">
-    <button class="btn" type="submit">Отримати код</button>
-    <div class="row-actions"><button type="button" class="link-btn" id="login-cancel">Скасувати</button></div>
-  </form>
-  <form id="login-code-form" method="dialog" hidden>
-    <h2>Код із листа</h2>
-    <p>Надіслали 6 цифр на <b id="login-sent-to"></b>. Код дійсний 10 хвилин.</p>
-    <div class="dev-hint" id="login-dev" hidden></div>
-    <label for="login-code">Код</label>
-    <input id="login-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required>
-    <button class="btn" type="submit">Увійти</button>
-    <div class="row-actions"><button type="button" class="link-btn" id="login-back">Інша пошта</button></div>
-  </form>
-  <p class="msg err" id="login-msg" role="alert" style="padding: 0 20px 16px"></p>
-</dialog>
 
 <script src="/auth.js"></script>
 <script src="/admin.js"></script>

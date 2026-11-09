@@ -38,12 +38,18 @@ h2 { font: 700 24px/1.2 var(--display); margin: 0 0 12px; display: flex; gap: 10
 h2 .n { color: var(--asphalt-soft); font-weight: 600; }
 
 .services { display: grid; gap: 8px; }
-.svc { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; align-items: center; text-align: left;
+.svc { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; gap: 16px; align-items: center; text-align: left;
        background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px;
        font: inherit; color: inherit; cursor: pointer; }
 .svc small { display: block; color: var(--asphalt-soft); font-size: 14px; }
 .svc .dur, .svc .price { font: 600 18px/1 var(--display); white-space: nowrap; }
 .svc[aria-pressed="true"] { border-color: var(--asphalt); box-shadow: inset 4px 0 0 var(--amber); }
+.svc:disabled { opacity: .45; cursor: not-allowed; }
+/* позначка вибору: можна обрати кілька послуг */
+.svc .check { width: 20px; height: 20px; border: 2px solid var(--line); border-radius: 4px; display: grid; place-items: center; }
+.svc[aria-pressed="true"] .check { background: var(--amber); border-color: var(--amber); }
+.svc[aria-pressed="true"] .check::after { content: ""; width: 5px; height: 10px; border: solid #2B3036; border-width: 0 2px 2px 0;
+                                         transform: translateY(-1px) rotate(45deg); }
 
 .days { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; }
 .day { flex: 0 0 64px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 4px;
@@ -142,3 +148,31 @@ table.data tr.cancelled td { color: var(--asphalt-soft); text-decoration: line-t
 table.data tr.cancelled td:last-child { text-decoration: none; }
 .muted { color: var(--asphalt-soft); }
 .notice { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 18px; }
+
+/* вкладки адмін-панелі */
+.tabs { display: flex; gap: 4px; border-bottom: 2px solid var(--line); margin-bottom: 20px; overflow-x: auto; }
+.tabs a { font: 700 20px/1 var(--display); padding: 10px 16px; color: var(--asphalt-soft); text-decoration: none;
+          border-bottom: 3px solid transparent; margin-bottom: -2px; white-space: nowrap; }
+.tabs a[aria-selected="true"] { color: var(--asphalt); border-bottom-color: var(--amber); }
+
+/* картки майстрів */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 14px; }
+.card { background: var(--ticket); border: 1px solid var(--line); border-radius: 6px; padding: 16px; display: grid; gap: 8px; align-content: start; }
+.card h3 { font: 700 22px/1.1 var(--display); margin: 0; }
+.card p { margin: 0; }
+.card .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 4px 0; }
+.card .stat { padding: 8px 10px; }
+.card .stat b { font-size: 22px; }
+.card .btn.ghost { justify-self: start; }
+.skills { margin: 0; padding-left: 18px; font-size: 15px; }
+
+/* стрічка подій */
+.feed { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.feed .ev { display: grid; grid-template-columns: 130px 120px minmax(0, 1fr); gap: 12px; align-items: start; background: var(--panel);
+            border: 1px solid var(--line); border-left: 4px solid var(--line); border-radius: 6px; padding: 10px 12px; font-size: 15px; }
+.feed .ev time { color: var(--asphalt-soft); white-space: nowrap; }
+.feed .tag { font: 600 13px/1.4 var(--body); }
+.feed .ev.new { border-left-color: var(--teal); }
+.feed .ev.cancel { border-left-color: var(--red); }
+.feed .ev.admin { border-left-color: var(--amber); }
+@media (max-width: 640px) { .feed .ev { grid-template-columns: 1fr; gap: 2px; } }
