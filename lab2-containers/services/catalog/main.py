@@ -2,7 +2,8 @@
 
 Власник даних: ServiceItem, Master, MasterSkill.
 Публічне API (через gateway): GET /api/services, GET /api/masters
-Внутрішнє API (лише в мережі контейнерів): GET /internal/services/{id}
+Внутрішнє API (лише в мережі контейнерів): GET /internal/services/{id},
+GET /internal/bundle?ids=a,b (кілька послуг за один візит)
 """
 from contextlib import asynccontextmanager
 
@@ -111,3 +112,26 @@ def service_details(service_id: str, s=Depends(session)):
         raise HTTPException(404, "Послугу не знайдено")
     return {"id": item.id, "name": item.name, "durationMin": item.duration_min, "priceUah": item.price_uah,
             "masters": [{"id": m.id, "name": m.name} for m in item.masters]}
+
+
+MAX_BUNDLE = 6  # скільки послуг можна обрати за один візит
+
+
+@app.get("/internal/bundle")
+def bundle_details(ids: str, s=Depends(session)):
+    """Кілька послуг за один візит: виконуються одна за одною в одного майстра.
+
+    Тривалість і ціна сумуються, а майстри — лише ті, хто вміє всі обрані послуги.
+    Для однієї послуги відповідь така сама, як /internal/services/{id}.
+    """
+    keys = list(dict.fromkeys(k.strip() for k in ids.split(",") if k.strip()))  # без дублікатів, у порядку вибору
+    if not 1 <= len(keys) <= MAX_BUNDLE:
+        raise HTTPException(422, f"Оберіть від 1 до {MAX_BUNDLE} послуг")
+    items = [s.get(ServiceItem, k) for k in keys]
+    if not all(items):
+        raise HTTPException(404, "Послугу не знайдено")
+    common = set.intersection(*({m.id for m in i.masters} for i in items))
+    masters = [{"id": m.id, "name": m.name} for m in items[0].masters if m.id in common]
+    return {"id": ",".join(keys), "name": " + ".join(i.name for i in items),
+            "durationMin": sum(i.duration_min for i in items), "priceUah": sum(i.price_uah for i in items),
+            "serviceIds": keys, "masters": masters}
