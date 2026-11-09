@@ -1,7 +1,10 @@
 // Сторінка запису. Каталог і вільний час доступні всім, а запис,
 // «Мої записи» й сповіщення — лише після входу (див. auth.js).
+//
+// Послуг можна обрати кілька: їх виконує один майстер підряд, тому доступні лише
+// такі поєднання, які вміє хоча б один майстер (решта кнопок вимикається).
 
-const state = { services: [], service: null, day: null, slot: null };
+const state = { services: [], masters: [], selected: [], day: null, slot: null };
 const $ = (id) => document.getElementById(id);
 const dayFmt = new Intl.DateTimeFormat("uk-UA", { weekday: "short" });
 const longDay = new Intl.DateTimeFormat("uk-UA", { weekday: "long", day: "numeric", month: "long" });
@@ -20,33 +23,54 @@ function press(container, btn) {
   if (btn) btn.setAttribute("aria-pressed", "true");
 }
 
+const total = (key) => state.selected.reduce((sum, s) => sum + s[key], 0);
+
 function renderTicket() {
-  const s = state.service, sl = state.slot;
-  $("t-svc").textContent = s ? s.name : "—";
+  const sel = state.selected, sl = state.slot;
+  $("t-svc").replaceChildren(...(sel.length ? sel.map((s) => el("div", { textContent: s.name })) : ["—"]));
+  $("t-dur").textContent = sel.length ? `${total("durationMin")} хв` : "—";
   $("t-day").textContent = state.day ? longDay.format(new Date(state.day + "T12:00")) : "—";
   $("t-time").textContent = sl ? `${hm(sl.start)}–${hm(sl.end)}` : "—";
   $("t-master").textContent = sl ? sl.masterName : "—";
-  $("t-price").textContent = s ? `${s.priceUah} грн` : "—";
+  $("t-price").textContent = sel.length ? `${total("priceUah")} грн` : "—";
   $("book-btn").disabled = !sl;
   $("book-btn").textContent = Auth.user ? "Записатися" : "Увійти й записатися";
 }
 
-async function loadServices() {
-  const res = await getJson("/api/services");
-  if (!res.ok) { $("services").replaceChildren(el("p", { className: "msg err", textContent: "Сервер недоступний" })); return; }
-  state.services = res.data;
+// Чи є майстер, який уміє всі обрані послуги разом із цією
+function combinable(service) {
+  const ids = [...state.selected.map((s) => s.id), service.id];
+  return state.masters.some((m) => ids.every((id) => m.serviceIds.includes(id)));
+}
+
+function renderServices() {
   const box = $("services");
   box.replaceChildren();
   for (const s of state.services) {
-    const b = el("button", { type: "button", className: "svc" }, [
-      el("span", {}, [s.name, el("small", { textContent: s.category })]),
+    const on = state.selected.includes(s);
+    const ok = on || combinable(s);
+    const b = el("button", { type: "button", className: "svc", disabled: !ok }, [
+      el("span", { className: "check", ariaHidden: "true" }),
+      el("span", {}, [s.name, el("small", { textContent: ok ? s.category : `${s.category} · не поєднується з обраними` })]),
       el("span", { className: "dur", textContent: `${s.durationMin} хв` }),
       el("span", { className: "price", textContent: `${s.priceUah} грн` }),
     ]);
-    b.setAttribute("aria-pressed", "false");
-    b.onclick = () => { state.service = s; state.slot = null; press(box, b); renderTicket(); loadSlots(); };
+    b.setAttribute("aria-pressed", String(on));
+    b.onclick = () => {
+      state.selected = on ? state.selected.filter((x) => x !== s) : [...state.selected, s];
+      state.slot = null;
+      renderServices(); renderTicket(); loadSlots();
+    };
     box.append(b);
   }
+}
+
+async function loadServices() {
+  const [res, masters] = await Promise.all([getJson("/api/services"), getJson("/api/masters")]);
+  if (!res.ok) { $("services").replaceChildren(el("p", { className: "msg err", textContent: "Сервер недоступний" })); return; }
+  state.services = res.data;
+  state.masters = masters.ok ? masters.data : [];
+  renderServices();
 }
 
 function renderDays() {
@@ -67,9 +91,13 @@ function renderDays() {
 
 async function loadSlots() {
   const box = $("slots");
-  if (!state.service || !state.day) return;
+  if (!state.selected.length || !state.day) {
+    box.replaceChildren(el("p", { className: "hint", textContent: "Оберіть послугу й день — покажемо вільні вікна майстрів." }));
+    return;
+  }
   box.replaceChildren(el("p", { className: "hint", textContent: "Шукаємо вільний час…" }));
-  const res = await getJson(`/api/availability?serviceId=${encodeURIComponent(state.service.id)}&date=${state.day}`);
+  const ids = state.selected.map((s) => s.id).join(",");
+  const res = await getJson(`/api/availability?serviceIds=${encodeURIComponent(ids)}&date=${state.day}`);
   if (!res.ok) { box.replaceChildren(el("p", { className: "msg err", textContent: res.error })); return; }
   if (!res.data.length) {
     box.replaceChildren(el("p", { className: "hint", textContent: "На цей день вільних вікон немає. Спробуйте інший день." }));
@@ -97,10 +125,10 @@ $("book").onsubmit = async (ev) => {
   ev.preventDefault();
   const msg = $("msg"); msg.className = "msg"; msg.textContent = "";
   if (!Auth.user) {
-    await Auth.open("Щоб записатися, увійдіть — надішлемо код на пошту.");
+    await Auth.open("Щоб записатися, увійдіть або зареєструйтесь.");
   }
   const res = await postJson("/api/bookings", {
-    serviceId: state.service.id, masterId: state.slot.masterId, start: state.slot.start,
+    serviceIds: state.selected.map((s) => s.id), masterId: state.slot.masterId, start: state.slot.start,
     clientName: $("name").value, phone: $("phone").value,
   });
   if (res.status === 401) { await Auth.open("Сесія завершилась, увійдіть ще раз."); return; }
