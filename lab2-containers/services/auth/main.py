@@ -1,16 +1,22 @@
-"""auth-service: вхід за одноразовим кодом з пошти, сесія в JWT, ролі CLIENT і ADMIN.
+"""auth-service: реєстрація з підтвердженням пошти, вхід за паролем, сесія в JWT,
+ролі CLIENT і ADMIN.
 
-Як відбувається вхід:
+Реєстрація (і відновлення пароля — те саме):
   1. POST /api/auth/request-code {email}  -> генеруємо 6-значний код, зберігаємо лише
      його хеш (HMAC) з терміном дії 10 хв і надсилаємо код листом.
-  2. POST /api/auth/verify {email, code}  -> перевіряємо код, створюємо користувача
-     (якщо новий) і видаємо JWT у cookie autoslot_session (HttpOnly).
-  3. Далі браузер сам надсилає cookie з кожним запитом. Gateway (nginx) перед
-     захищеними запитами звертається до GET /internal/verify, і цей сервіс каже,
-     хто користувач: заголовки X-User-Id, X-User-Email, X-User-Role.
+  2. POST /api/auth/verify {email, code, password}  -> перевіряємо код (так ми знаємо,
+     що пошта справді належить користувачу), створюємо користувача, зберігаємо хеш
+     пароля і видаємо JWT у cookie autoslot_session (HttpOnly).
+Подальші входи:
+  POST /api/auth/login {email, password}  -> лист більше не потрібен.
+Після входу браузер сам надсилає cookie з кожним запитом. Gateway (nginx) перед
+захищеними запитами звертається до GET /internal/verify, і цей сервіс каже, хто
+користувач: заголовки X-User-Id, X-User-Email, X-User-Role.
 
-Паролів немає взагалі, тож немає що вкрасти з бази чи підібрати.
+Пароль зберігається лише як хеш scrypt з випадковою сіллю: навіть з копією бази
+відновити пароль можна тільки перебором, а scrypt робить перебір дорогим.
 """
+import base64
 import hashlib
 import hmac
 import logging
@@ -58,6 +64,9 @@ DEV_MODE = os.getenv("AUTH_DEV_MODE", "false").lower() == "true"
 LOGIN_CODES = Counter("auth_login_codes_total", "Надіслані коди входу")
 LOGINS = Counter("auth_logins_total", "Успішні входи", ["role"])
 LOGIN_FAILURES = Counter("auth_login_failures_total", "Невдалі спроби входу", ["reason"])
+PASSWORD_MIN, PASSWORD_MAX = 8, 128
+MAX_PASSWORD_FAILS = 5                # невдалих паролів поспіль, після чого вхід блокується ...
+LOCK_TIME = timedelta(minutes=15)     # ... на цей час (захист від перебору пароля)
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
@@ -72,6 +81,17 @@ class User(Base):
     role: Mapped[str] = mapped_column(String(10))  # CLIENT | ADMIN
     created_at: Mapped[datetime] = mapped_column(DateTime)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    password_hash: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    failed_logins: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+# Бази, створені до появи паролів, отримують нові колонки при старті сервісу.
+MIGRATIONS = (
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash VARCHAR(200)",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS failed_logins INTEGER NOT NULL DEFAULT 0",
+    "ALTER TABLE users ADD COLUMN IF NOT EXISTS locked_until TIMESTAMP",
+)
 
 
 class LoginCode(Base):
@@ -91,6 +111,36 @@ def now() -> datetime:
 
 def hash_code(email: str, code: str) -> str:
     return hmac.new(AUTH_SECRET.encode(), f"{email}:{code}".encode(), hashlib.sha256).hexdigest()
+
+
+# scrypt: n=2^14, r=8 — близько 16 МБ пам'яті й десятки мс на одну перевірку
+SCRYPT = {"n": 2**14, "r": 8, "p": 1, "dklen": 32}
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    digest = hashlib.scrypt(password.encode(), salt=salt, **SCRYPT)
+    return "scrypt$" + base64.b64encode(salt).decode() + "$" + base64.b64encode(digest).decode()
+
+
+def check_password(password: str, stored: str | None) -> bool:
+    try:
+        _, salt, digest = (stored or "").split("$")
+        actual = hashlib.scrypt(password.encode(), salt=base64.b64decode(salt), **SCRYPT)
+        return hmac.compare_digest(actual, base64.b64decode(digest))
+    except ValueError:
+        return False
+
+
+# Для неіснуючої адреси все одно рахуємо scrypt, щоб за часом відповіді не можна
+# було дізнатися, хто зареєстрований.
+DUMMY_HASH = hash_password(secrets.token_hex(8))
+
+
+def check_new_password(password: str) -> str:
+    if not PASSWORD_MIN <= len(password) <= PASSWORD_MAX:
+        raise HTTPException(422, f"Пароль має містити від {PASSWORD_MIN} до {PASSWORD_MAX} символів")
+    return password
 
 
 def normalize_email(email: str) -> str:
@@ -118,7 +168,7 @@ def read_token(token: str | None) -> dict | None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     wait_for_db(engine)
-    init_schema(engine, Base.metadata, lock_name="auth")
+    init_schema(engine, Base.metadata, lock_name="auth", migrations=MIGRATIONS)
     yield
 
 
@@ -138,6 +188,25 @@ class CodeRequest(BaseModel):
 class VerifyRequest(BaseModel):
     email: str
     code: str
+    password: str | None = None  # задається при реєстрації та відновленні пароля
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+def start_session(response: Response, user: User, s) -> dict:
+    user.last_login_at, user.failed_logins, user.locked_until = now(), 0, None
+    s.commit()
+    log.info("login %s (%s)", user.email, user.role)
+    LOGINS.labels(user.role).inc()
+    response.set_cookie(COOKIE_NAME, make_token(user), max_age=int(SESSION_TTL.total_seconds()),
+                        httponly=True,      # JavaScript сторінки не бачить токен -> XSS не вкраде його
+                        secure=COOKIE_SECURE,  # лише по HTTPS
+                        samesite="lax",     # не надсилається з POST-запитами з чужих сайтів (CSRF)
+                        path="/")
+    return {"email": user.email, "role": user.role}
 
 
 @app.get("/health")
@@ -157,9 +226,10 @@ def request_code(body: CodeRequest, s=Depends(session)):
     s.add(LoginCode(id=str(uuid.uuid4()), email=email, code_hash=hash_code(email, code),
                     created_at=now(), expires_at=now() + CODE_TTL, attempts=0, used=0))
     s.commit()
-    mailer.send(email, "Код входу AutoSlot",
-                f"Ваш код входу: {code}\nКод дійсний {int(CODE_TTL.total_seconds() // 60)} хвилин. "
-                "Якщо ви не намагались увійти, просто проігноруйте цей лист.")
+    mailer.send(email, "Код підтвердження AutoSlot",
+                f"Ваш код підтвердження: {code}\nКод дійсний {int(CODE_TTL.total_seconds() // 60)} хвилин. "
+                "Введіть його на сайті й задайте пароль — далі входитимете за паролем.\n"
+                "Якщо ви не реєструвались в AutoSlot, просто проігноруйте цей лист.")
     LOGIN_CODES.inc()
     # Відповідь однакова для нових і наявних адрес, щоб не можна було дізнатися,
     # хто зареєстрований.
@@ -172,6 +242,7 @@ def request_code(body: CodeRequest, s=Depends(session)):
 @app.post("/api/auth/verify")
 def verify(body: VerifyRequest, response: Response, s=Depends(session)):
     email = normalize_email(body.email)
+    password = check_new_password(body.password) if body.password is not None else None
     entry = s.scalar(select(LoginCode).where(LoginCode.email == email, LoginCode.used == 0,
                                              LoginCode.expires_at > now())
                      .order_by(LoginCode.created_at.desc()).limit(1))
@@ -194,19 +265,33 @@ def verify(body: VerifyRequest, response: Response, s=Depends(session)):
     role = "ADMIN" if email in ADMIN_EMAILS else "CLIENT"
     user = s.scalar(select(User).where(User.email == email))
     if not user:
-        user = User(id=str(uuid.uuid4()), email=email, role=role, created_at=now())
+        user = User(id=str(uuid.uuid4()), email=email, role=role, created_at=now(), failed_logins=0)
         s.add(user)
-    user.role, user.last_login_at = role, now()
-    s.commit()
-    log.info("login %s (%s)", email, role)
-    LOGINS.labels(role).inc()
+    user.role = role
+    if password is not None:  # пошту підтверджено кодом — можна задати (або змінити) пароль
+        user.password_hash = hash_password(password)
+    return start_session(response, user, s)
 
-    response.set_cookie(COOKIE_NAME, make_token(user), max_age=int(SESSION_TTL.total_seconds()),
-                        httponly=True,      # JavaScript сторінки не бачить токен -> XSS не вкраде його
-                        secure=COOKIE_SECURE,  # лише по HTTPS
-                        samesite="lax",     # не надсилається з POST-запитами з чужих сайтів (CSRF)
-                        path="/")
-    return {"email": user.email, "role": user.role}
+
+@app.post("/api/auth/login")
+def login(body: LoginRequest, response: Response, s=Depends(session)):
+    email = normalize_email(body.email)
+    user = s.scalar(select(User).where(User.email == email))
+    if user and user.locked_until and user.locked_until > now():
+        LOGIN_FAILURES.labels("locked").inc()
+        raise HTTPException(429, "Забагато невдалих спроб. Спробуйте через 15 хвилин або відновіть пароль")
+    ok = check_password(body.password, user.password_hash if user and user.password_hash else DUMMY_HASH)
+    if not user or not user.password_hash or not ok:
+        if user:
+            user.failed_logins = (user.failed_logins or 0) + 1
+            if user.failed_logins >= MAX_PASSWORD_FAILS:
+                user.locked_until, user.failed_logins = now() + LOCK_TIME, 0
+            s.commit()
+        LOGIN_FAILURES.labels("wrong_password").inc()
+        # однакова відповідь для неіснуючої адреси й невірного пароля
+        raise HTTPException(400, "Невірна пошта або пароль")
+    user.role = "ADMIN" if email in ADMIN_EMAILS else "CLIENT"
+    return start_session(response, user, s)
 
 
 @app.post("/api/auth/logout")

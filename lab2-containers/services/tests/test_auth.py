@@ -86,3 +86,45 @@ def test_invalid_or_forged_token_rejected():
 
 def test_invalid_email_rejected():
     assert client.post("/api/auth/request-code", json={"email": "not-an-email"}).status_code == 422
+
+
+# ---------- реєстрація з паролем ----------
+
+def register(email, password):
+    code = client.post("/api/auth/request-code", json={"email": email}).json()["devCode"]
+    return client.post("/api/auth/verify", json={"email": email, "code": code, "password": password})
+
+
+def test_register_then_login_with_password_without_email():
+    assert register("pass@example.com", "correct horse").status_code == 200
+    with auth.SessionLocal() as s:
+        stored = s.query(auth.User).filter_by(email="pass@example.com").one().password_hash
+    assert stored.startswith("scrypt$") and "correct horse" not in stored
+    c = TestClient(auth.app)
+    r = c.post("/api/auth/login", json={"email": "PASS@example.com", "password": "correct horse"})
+    assert r.status_code == 200 and r.json()["email"] == "pass@example.com"
+    assert "autoslot_session=" in r.headers["set-cookie"]
+    assert c.get("/api/auth/me").json()["email"] == "pass@example.com"
+
+
+def test_short_password_rejected():
+    assert register("short@example.com", "1234567").status_code == 422
+
+
+def test_wrong_password_and_unknown_email_look_the_same():
+    register("same@example.com", "secret-pass-1")
+    wrong = client.post("/api/auth/login", json={"email": "same@example.com", "password": "nope-nope"})
+    unknown = client.post("/api/auth/login", json={"email": "nobody@example.com", "password": "nope-nope"})
+    assert wrong.status_code == unknown.status_code == 400
+    assert wrong.json() == unknown.json()
+
+
+def test_account_locked_after_failed_passwords_and_reset_unlocks():
+    register("lock@example.com", "first-password")
+    for _ in range(auth.MAX_PASSWORD_FAILS):
+        assert client.post("/api/auth/login", json={"email": "lock@example.com", "password": "bad-guess"}).status_code == 400
+    # заблоковано навіть з правильним паролем
+    assert client.post("/api/auth/login", json={"email": "lock@example.com", "password": "first-password"}).status_code == 429
+    # відновлення пароля через код з пошти знімає блокування
+    assert register("lock@example.com", "second-password").status_code == 200
+    assert client.post("/api/auth/login", json={"email": "lock@example.com", "password": "second-password"}).status_code == 200
