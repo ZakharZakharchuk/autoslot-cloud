@@ -35,3 +35,5 @@ cd ../lab4-cloud-tools/terraform && terraform destroy
 ## CI/CD
 
 Кожен push у `main`: CI (тести, Docker + smoke-тест, Terraform) → після успіху Deploy оновлює застосунок на ВМ.
+
+Репозиторій: https://github.com/ZakharZakharchuk/autoslot-cloud — вкладка Actions показує запуски CI і Deploy.
