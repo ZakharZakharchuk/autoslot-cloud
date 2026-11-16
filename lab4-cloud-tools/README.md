@@ -30,3 +30,7 @@ python ../lab4-cloud-tools/scripts/load.py http://localhost:8080 --minutes 5
 # 4. Прибрати інфраструктуру
 cd ../lab4-cloud-tools/terraform && terraform destroy
 ```
+
+## CI/CD
+
+Кожен push у `main`: CI (тести, Docker + smoke-тест, Terraform) → після успіху Deploy оновлює застосунок на ВМ.
