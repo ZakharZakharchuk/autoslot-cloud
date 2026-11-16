@@ -55,6 +55,7 @@ resource "aws_instance" "autoslot" {
   instance_type          = var.instance_type
   key_name               = aws_key_pair.autoslot.key_name
   vpc_security_group_ids = [aws_security_group.autoslot.id]
+  iam_instance_profile   = aws_iam_instance_profile.vm.name # агент SSM для розгортання без SSH (iam.tf)
 
   # Якщо ВМ вимкнеться зсередини (shutdown у cloud-init) — AWS її видалить і не братиме плату
   instance_initiated_shutdown_behavior = var.auto_shutdown_hours > 0 ? "terminate" : "stop"

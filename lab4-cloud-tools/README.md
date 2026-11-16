@@ -20,7 +20,8 @@ terraform init && terraform apply
 terraform output                                                # адреси
 
 # 2. Автоматичне розгортання: у GitHub -> Settings -> Secrets -> Actions додати
-#    DEPLOY_HOST (terraform output public_ip) і DEPLOY_SSH_KEY (приватний ключ)
+#    DEPLOY_ROLE_ARN, DEPLOY_INSTANCE_ID і DEPLOY_HOST (terraform output: deploy_role_arn, instance_id, public_ip)
+#    Розгортання йде через OIDC + AWS Systems Manager, без SSH і без ключів (terraform/iam.tf)
 
 # 3. Моніторинг локально
 cd ../../lab2-containers && docker compose --profile monitoring up -d --build

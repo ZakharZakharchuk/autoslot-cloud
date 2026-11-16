@@ -16,3 +16,13 @@ output "grafana_url" {
 output "ssh_command" {
   value = "ssh -i ${trimsuffix(pathexpand(var.ssh_public_key_path), ".pub")} ubuntu@${aws_instance.autoslot.public_ip}"
 }
+
+output "instance_id" {
+  description = "ID ВМ — секрет DEPLOY_INSTANCE_ID у GitHub"
+  value       = aws_instance.autoslot.id
+}
+
+output "deploy_role_arn" {
+  description = "Роль для GitHub Actions — секрет DEPLOY_ROLE_ARN у GitHub"
+  value       = aws_iam_role.deploy.arn
+}

@@ -1,7 +1,13 @@
 # Безперервне розгортання: після успішного CI на гілці main оновлює застосунок на ВМ.
-# Потрібні секрети репозиторію (Settings -> Secrets and variables -> Actions):
-#   DEPLOY_HOST    — IP-адреса ВМ (вивід terraform output public_ip)
-#   DEPLOY_SSH_KEY — приватний SSH-ключ (вміст ~/.ssh/autoslot)
+# Без SSH і без збережених ключів AWS:
+#   1) GitHub видає короткоживучий OIDC-токен, AWS обмінює його на роль autoslot-github-deploy
+#      (довіряє лише цьому репозиторію й гілці main, див. lab4-cloud-tools/terraform/iam.tf);
+#   2) команда розгортання йде на ВМ через AWS Systems Manager (агент SSM забирає її сам,
+#      вхідні порти для цього не відкриваються).
+# Потрібні секрети репозиторію (Settings -> Secrets and variables -> Actions), значення — з terraform output:
+#   DEPLOY_ROLE_ARN    — deploy_role_arn
+#   DEPLOY_INSTANCE_ID — instance_id
+#   DEPLOY_HOST        — public_ip (для перевірки, що сайт відповідає)
 # Без секретів розгортання пропускається.
 name: Deploy
 
@@ -14,6 +20,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write   # дозволяє отримати OIDC-токен для входу в AWS
 
 concurrency:
   group: deploy
@@ -25,33 +32,61 @@ jobs:
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-24.04
     env:
+      AWS_REGION: eu-central-1
       HOST: ${{ secrets.DEPLOY_HOST }}
+      INSTANCE_ID: ${{ secrets.DEPLOY_INSTANCE_ID }}
+      ROLE_ARN: ${{ secrets.DEPLOY_ROLE_ARN }}
       SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
     steps:
       - name: Чи налаштовано розгортання
         id: check
         run: |
-          if [ -z "$HOST" ]; then
-            echo "::notice::Секрет DEPLOY_HOST не задано — розгортання пропущено"
+          if [ -z "$ROLE_ARN" ] || [ -z "$INSTANCE_ID" ] || [ -z "$HOST" ]; then
+            echo "::notice::Секрети DEPLOY_ROLE_ARN / DEPLOY_INSTANCE_ID / DEPLOY_HOST не задано — розгортання пропущено"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
-      - name: SSH-ключ
+
+      - name: Вхід в AWS через OIDC
+        if: steps.check.outputs.skip != 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+          role-session-name: autoslot-deploy-${{ github.run_id }}
+
+      - name: Оновлення коду й перезапуск змінених контейнерів (через SSM)
         if: steps.check.outputs.skip != 'true'
         run: |
-          install -m 700 -d ~/.ssh
-          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
-          chmod 600 ~/.ssh/id_ed25519
-          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
-      - name: Оновлення коду й перезапуск змінених контейнерів
-        if: steps.check.outputs.skip != 'true'
-        run: |
-          ssh ubuntu@"$HOST" "set -e
-            cd /opt/autoslot
-            git fetch --quiet origin
-            git checkout --quiet $SHA
-            cd lab2-containers
-            docker compose --profile monitoring up -d --build --wait --wait-timeout 300
-            docker image prune -f"
+          SCRIPT="cd /opt/autoslot && git fetch --quiet origin && git checkout --quiet $SHA \
+            && cd lab2-containers \
+            && docker compose --profile monitoring up -d --build --wait --wait-timeout 300 \
+            && docker image prune -f"
+          PARAMS=$(jq -n --arg cmd "sudo -u ubuntu -H bash -euc '$SCRIPT'" \
+            '{commands: [$cmd], executionTimeout: ["900"]}')
+          CMD_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript \
+            --comment "deploy ${SHA:0:7}" \
+            --parameters "$PARAMS" \
+            --query Command.CommandId --output text)
+          echo "Команда SSM: $CMD_ID"
+
+          # чекаємо завершення (до 15 хв)
+          for i in $(seq 1 90); do
+            sleep 10
+            STATUS=$(aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+              --query Status --output text 2>/dev/null || echo Pending)
+            case "$STATUS" in
+              Pending|InProgress|Delayed) echo "… $STATUS" ;;
+              *) break ;;
+            esac
+          done
+
+          aws ssm get-command-invocation --command-id "$CMD_ID" --instance-id "$INSTANCE_ID" \
+            --query '[StandardOutputContent, StandardErrorContent]' --output text | tail -40
+          echo "Статус: $STATUS"
+          [ "$STATUS" = "Success" ]
+
       - name: Перевірка, що сайт відповідає
         if: steps.check.outputs.skip != 'true'
         run: |
