@@ -1,0 +1,11 @@
+{
+  "label": "monolith-r2",
+  "wall_s": 28.2,
+  "processes": {
+    "app": {
+      "cpu_s": 13.19,
+      "idle_rss_mb": 82.6,
+      "peak_rss_mb": 90.9
+    }
+  }
+}

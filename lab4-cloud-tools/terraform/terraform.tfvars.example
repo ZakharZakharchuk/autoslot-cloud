@@ -1,0 +1,11 @@
+# cp terraform.tfvars.example terraform.tfvars і заповніть. terraform.tfvars не комітиться.
+admin_cidr          = "1.2.3.4/32"            # ваша IP: curl -s https://checkip.amazonaws.com
+ssh_public_key_path = "~/.ssh/autoslot.pub"   # ssh-keygen -t ed25519 -f ~/.ssh/autoslot
+admin_emails        = "you@example.com"
+auth_dev_mode       = true                     # для демонстрації без SMTP; з SMTP — false
+auto_shutdown_hours = 5
+
+# паролі — без одинарних лапок усередині
+postgres_password = "довгий-випадковий-пароль"
+auth_secret       = "щонайменше-16-символів-випадковий-рядок"
+grafana_password  = "пароль-для-grafana"

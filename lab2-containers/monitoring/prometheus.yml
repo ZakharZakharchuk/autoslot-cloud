@@ -1,0 +1,24 @@
+# Prometheus: раз на 15 с забирає /metrics з усіх реплік усіх сервісів.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts.yml
+
+scrape_configs:
+  - job_name: autoslot
+    # Виявлення реплік через DNS Docker: ім'я сервісу повертає IP усіх його реплік,
+    # тож нова репліка (наприклад, після --scale) з'являється в моніторингу сама.
+    dns_sd_configs:
+      - names: [auth, catalog, availability, booking, notification]
+        type: A
+        port: 8000
+        refresh_interval: 15s
+    relabel_configs:
+      - source_labels: [__meta_dns_name]
+        target_label: service
+
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

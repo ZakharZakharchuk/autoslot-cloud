@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AutoSlot — запис на СТО</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1 class="brand">Auto<span>Slot</span></h1>
+    <div class="top-actions">
+      <p class="tagline">Запис на СТО без дзвінків: послуга, день, вільний майстер.</p>
+      <div class="account" id="account"></div>
+    </div>
+  </header>
+
+  <div class="layout">
+    <main>
+      <section class="step" aria-labelledby="h-svc">
+        <h2 id="h-svc"><span class="n">1</span> Що робимо</h2>
+        <div class="services" id="services"><p class="hint">Завантажуємо послуги…</p></div>
+      </section>
+
+      <section class="step" aria-labelledby="h-day">
+        <h2 id="h-day"><span class="n">2</span> Коли зручно</h2>
+        <div class="days" id="days"></div>
+      </section>
+
+      <section class="step" aria-labelledby="h-time">
+        <h2 id="h-time"><span class="n">3</span> Вільний час</h2>
+        <div id="slots"><p class="hint">Оберіть послугу й день — покажемо вільні вікна майстрів.</p></div>
+      </section>
+
+      <section class="mine" aria-labelledby="h-mine">
+        <h2 id="h-mine">Мої записи</h2>
+        <div id="mine-login" hidden><p class="hint">Увійдіть, щоб побачити свої записи. <button class="link-btn" id="mine-login-btn">Увійти</button></p></div>
+        <div class="rows" id="my-bookings"></div>
+        <ul class="notes" id="notifications" hidden></ul>
+      </section>
+    </main>
+
+    <aside class="ticket" id="ticket" aria-labelledby="h-ticket">
+      <div class="stripe"></div>
+      <div class="body">
+        <h2 id="h-ticket">Талон на ремонт</h2>
+        <dl>
+          <dt>Послуга</dt><dd id="t-svc">—</dd>
+          <dt>День</dt><dd id="t-day">—</dd>
+          <dt>Час</dt><dd id="t-time">—</dd>
+          <dt>Майстер</dt><dd id="t-master">—</dd>
+          <dt>Вартість</dt><dd id="t-price">—</dd>
+        </dl>
+        <hr class="perf">
+        <form id="book">
+          <label for="name">Ім'я</label>
+          <input id="name" autocomplete="name" required minlength="2">
+          <label for="phone">Телефон</label>
+          <input id="phone" type="tel" autocomplete="tel" placeholder="+380 67 123 45 67" required>
+          <button class="btn" id="book-btn" type="submit" disabled>Записатися</button>
+        </form>
+        <p class="msg" id="msg" role="status"></p>
+      </div>
+    </aside>
+  </div>
+
+  <footer><span id="ver"></span></footer>
+</div>
+
+<dialog class="login" id="login" aria-labelledby="login-title">
+  <div class="stripe"></div>
+  <form id="login-email-form" method="dialog">
+    <h2 id="login-title">Вхід</h2>
+    <p id="login-reason">Введіть пошту — надішлемо код входу.</p>
+    <label for="login-email">Пошта</label>
+    <input id="login-email" type="email" autocomplete="email" required placeholder="name@example.com">
+    <button class="btn" type="submit">Отримати код</button>
+    <div class="row-actions"><button type="button" class="link-btn" id="login-cancel">Скасувати</button></div>
+  </form>
+  <form id="login-code-form" method="dialog" hidden>
+    <h2>Код із листа</h2>
+    <p>Надіслали 6 цифр на <b id="login-sent-to"></b>. Код дійсний 10 хвилин.</p>
+    <div class="dev-hint" id="login-dev" hidden></div>
+    <label for="login-code">Код</label>
+    <input id="login-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required>
+    <button class="btn" type="submit">Увійти</button>
+    <div class="row-actions"><button type="button" class="link-btn" id="login-back">Інша пошта</button></div>
+  </form>
+  <p class="msg err" id="login-msg" role="alert" style="padding: 0 20px 16px"></p>
+</dialog>
+
+<script src="/auth.js"></script>
+<script src="/app.js"></script>
+</body>
+</html>

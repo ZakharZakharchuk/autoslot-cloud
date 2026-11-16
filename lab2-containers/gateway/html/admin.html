@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AutoSlot — адміністрування</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1 class="brand">Auto<span>Slot</span> <span class="muted" style="background:none;font-size:24px">адміністрування</span></h1>
+    <div class="top-actions">
+      <a href="/" class="tagline">До запису</a>
+      <div class="account" id="account"></div>
+    </div>
+  </header>
+
+  <div id="gate" class="notice" hidden></div>
+
+  <main id="panel" hidden>
+    <form class="filters" id="filters">
+      <div><label for="f-from">З дати</label><input id="f-from" type="date"></div>
+      <div><label for="f-to">По дату</label><input id="f-to" type="date"></div>
+      <div><label for="f-master">Майстер</label><select id="f-master"><option value="">усі</option></select></div>
+      <div><label for="f-status">Статус</label>
+        <select id="f-status"><option value="">усі</option><option value="CONFIRMED">підтверджені</option><option value="CANCELLED">скасовані</option></select></div>
+      <div><label for="f-q">Пошук</label><input id="f-q" type="search" placeholder="ім'я, пошта, телефон"></div>
+      <div><button class="btn" type="submit" style="font-size:18px;padding:10px">Показати</button></div>
+    </form>
+
+    <h2>Завантаженість майстрів</h2>
+    <div class="stats" id="stats"></div>
+
+    <h2>Записи <span class="muted" id="count" style="font-size:18px"></span></h2>
+    <div class="table-wrap">
+      <table class="data">
+        <thead><tr><th>Дата й час</th><th>Послуга</th><th>Майстер</th><th>Клієнт</th><th>Пошта</th><th>Телефон</th><th>Сума</th><th>Статус</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+
+    <h2 style="margin-top:28px">Журнал дій адміністраторів</h2>
+    <ul class="notes" id="audit"></ul>
+  </main>
+</div>
+
+<dialog class="login" id="login" aria-labelledby="login-title">
+  <div class="stripe"></div>
+  <form id="login-email-form" method="dialog">
+    <h2 id="login-title">Вхід</h2>
+    <p id="login-reason">Введіть пошту — надішлемо код входу.</p>
+    <label for="login-email">Пошта</label>
+    <input id="login-email" type="email" autocomplete="email" required placeholder="name@example.com">
+    <button class="btn" type="submit">Отримати код</button>
+    <div class="row-actions"><button type="button" class="link-btn" id="login-cancel">Скасувати</button></div>
+  </form>
+  <form id="login-code-form" method="dialog" hidden>
+    <h2>Код із листа</h2>
+    <p>Надіслали 6 цифр на <b id="login-sent-to"></b>. Код дійсний 10 хвилин.</p>
+    <div class="dev-hint" id="login-dev" hidden></div>
+    <label for="login-code">Код</label>
+    <input id="login-code" class="code-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" pattern="[0-9]{6}" required>
+    <button class="btn" type="submit">Увійти</button>
+    <div class="row-actions"><button type="button" class="link-btn" id="login-back">Інша пошта</button></div>
+  </form>
+  <p class="msg err" id="login-msg" role="alert" style="padding: 0 20px 16px"></p>
+</dialog>
+
+<script src="/auth.js"></script>
+<script src="/admin.js"></script>
+</body>
+</html>

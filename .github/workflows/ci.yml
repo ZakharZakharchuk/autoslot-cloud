@@ -1,0 +1,80 @@
+# Безперервна інтеграція: на кожен push і pull request.
+#  1) модульні тести всіх лаб;
+#  2) збірка всіх образів і запуск системи в Docker + наскрізний smoke-тест;
+#  3) перевірка конфігурації Terraform.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    name: Модульні тести
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Мікросервіси (ЛР2)
+        working-directory: lab2-containers/services
+        run: |
+          pip install -r requirements.txt pytest
+          python -m pytest tests -q
+      - name: Хмарний застосунок (ЛР1)
+        working-directory: lab1-cloud-deploy
+        run: |
+          pip install -r requirements.txt pytest httpx
+          python -m pytest -q
+      - name: Моноліт (ЛР3)
+        working-directory: lab3-comparison/monolith
+        run: python -m pytest -q
+
+  e2e:
+    name: Система в Docker + smoke-тест
+    needs: unit-tests
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: lab2-containers
+    steps:
+      - uses: actions/checkout@v4
+      - name: Налаштування для тесту
+        run: |
+          cp .env.example .env
+          sed -i "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$(openssl rand -hex 16)|" .env
+          sed -i "s|^AUTH_SECRET=.*|AUTH_SECRET=$(openssl rand -hex 32)|" .env
+          sed -i "s|^ADMIN_EMAILS=.*|ADMIN_EMAILS=boss@example.com|" .env
+          sed -i "s|^AUTH_DEV_MODE=.*|AUTH_DEV_MODE=true|" .env
+      - name: Збірка й запуск (чекаємо, поки всі контейнери стануть healthy)
+        run: docker compose up -d --build --wait --wait-timeout 300
+      - name: Стан контейнерів
+        run: docker compose ps
+      - name: Smoke-тест
+        run: python3 scripts/smoke_test.py http://localhost:8080
+      - name: Журнали (якщо щось упало)
+        if: failure()
+        run: docker compose logs --tail 100
+      - name: Зупинка
+        if: always()
+        run: docker compose down -v
+
+  terraform:
+    name: Перевірка Terraform
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: lab4-cloud-tools/terraform
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform fmt -check -diff
+      - run: terraform init -backend=false
+      - run: terraform validate

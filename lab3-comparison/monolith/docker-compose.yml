@@ -1,0 +1,34 @@
+# AutoSlot — монолітна версія (лабораторна робота 3).
+# Запуск:  cp .env.example .env && docker compose up -d --build
+# Відкрити: http://localhost:8081  (мікросервісна версія з лаб. 2 — на :8080)
+name: autoslot-monolith
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-autoslot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD у файлі .env}
+      POSTGRES_DB: autoslot
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-autoslot}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    image: autoslot/monolith:3.0.0
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-autoslot}:${POSTGRES_PASSWORD}@postgres:5432/autoslot
+    ports:
+      - "${APP_PORT:-8081}:8000"
+    depends_on:
+      postgres: { condition: service_healthy }
+
+volumes:
+  pgdata:

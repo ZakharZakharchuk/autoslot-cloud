@@ -1,0 +1,48 @@
+#!/bin/bash
+# Виконується один раз при першому запуску ВМ (user_data). Журнал: /var/log/cloud-init-output.log
+set -euo pipefail
+
+%{ if auto_shutdown_hours > 0 ~}
+# Самознищення, щоб забута ВМ не коштувала грошей
+shutdown -h +${auto_shutdown_hours * 60}
+%{ endif ~}
+
+# Docker Engine з офіційного репозиторію Docker
+apt-get update -q
+apt-get install -y -q ca-certificates curl git
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" \
+  > /etc/apt/sources.list.d/docker.list
+apt-get update -q
+apt-get install -y -q docker-ce docker-ce-cli containerd.io docker-compose-plugin
+usermod -aG docker ubuntu
+
+# Код застосунку
+git clone --branch "${repo_ref}" "${repo_url}" /opt/autoslot
+chown -R ubuntu:ubuntu /opt/autoslot
+cd /opt/autoslot/lab2-containers
+
+# Налаштування. Секрети є лише тут, у git їх немає.
+# Одинарні лапки: Docker Compose не підставлятиме змінні, якщо в паролі є символ $.
+cat > .env <<'ENV'   # лапки: bash не розкриває $ у паролях
+POSTGRES_USER=autoslot
+POSTGRES_PASSWORD='${postgres_password}'
+GATEWAY_PORT=8080
+HOLD_TTL_SECONDS=300
+REPLICAS=${replicas}
+AUTH_SECRET='${auth_secret}'
+ADMIN_EMAILS=${admin_emails}
+COOKIE_SECURE=false
+AUTH_DEV_MODE=${auth_dev_mode}
+SMTP_HOST=${smtp_host}
+SMTP_PORT=587
+SMTP_USER=${smtp_user}
+SMTP_PASSWORD='${smtp_password}'
+GRAFANA_PASSWORD='${grafana_password}'
+GRAFANA_PORT=3000
+ENV
+chmod 600 .env
+chown ubuntu:ubuntu .env
+
+docker compose --profile monitoring up -d --build

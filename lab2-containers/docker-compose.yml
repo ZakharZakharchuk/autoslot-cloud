@@ -1,0 +1,167 @@
+# AutoSlot — контейнерна версія.
+# Запуск:  cp .env.example .env && docker compose up -d --build
+# Відкрити: http://localhost:8080   (адмін-панель: /admin.html)
+# З моніторингом (ЛР4): docker compose --profile monitoring up -d --build
+#   Grafana: http://localhost:3000 (логін admin, пароль GRAFANA_PASSWORD з .env)
+name: autoslot
+
+x-python-env: &python-env
+  REDIS_URL: redis://redis:6379/0
+  LOG_LEVEL: INFO
+  APP_VERSION: 2.1.0
+
+x-mail-env: &mail-env
+  SMTP_HOST: ${SMTP_HOST:-}
+  SMTP_PORT: ${SMTP_PORT:-587}
+  SMTP_USER: ${SMTP_USER:-}
+  SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+  MAIL_FROM: ${MAIL_FROM:-AutoSlot <no-reply@autoslot.local>}
+
+# Кількість реплік кожного Python-сервісу (за замовчуванням 2)
+x-replicas: &replicas
+  replicas: ${REPLICAS:-2}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-autoslot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?задайте POSTGRES_PASSWORD у файлі .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./postgres/init-databases.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-autoslot}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  auth:
+    build: { context: ./services, args: { SERVICE: auth } }
+    image: autoslot/auth:2.1.0
+    restart: unless-stopped
+    deploy: *replicas
+    environment:
+      <<: [*python-env, *mail-env]
+      DATABASE_URL: postgresql://${POSTGRES_USER:-autoslot}:${POSTGRES_PASSWORD}@postgres:5432/auth
+      AUTH_SECRET: ${AUTH_SECRET:?задайте AUTH_SECRET у файлі .env}
+      ADMIN_EMAILS: ${ADMIN_EMAILS:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      AUTH_DEV_MODE: ${AUTH_DEV_MODE:-false}
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  catalog:
+    build: { context: ./services, args: { SERVICE: catalog } }
+    image: autoslot/catalog:2.1.0
+    restart: unless-stopped
+    deploy: *replicas
+    environment:
+      <<: *python-env
+      DATABASE_URL: postgresql://${POSTGRES_USER:-autoslot}:${POSTGRES_PASSWORD}@postgres:5432/catalog
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  availability:
+    build: { context: ./services, args: { SERVICE: availability } }
+    image: autoslot/availability:2.1.0
+    restart: unless-stopped
+    deploy: *replicas
+    environment:
+      <<: *python-env
+      DATABASE_URL: postgresql://${POSTGRES_USER:-autoslot}:${POSTGRES_PASSWORD}@postgres:5432/availability
+      CATALOG_URL: http://catalog:8000
+      HOLD_TTL_SECONDS: ${HOLD_TTL_SECONDS:-300}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      catalog: { condition: service_healthy }
+
+  booking:
+    build: { context: ./services, args: { SERVICE: booking } }
+    image: autoslot/booking:2.1.0
+    restart: unless-stopped
+    deploy: *replicas
+    environment:
+      <<: *python-env
+      DATABASE_URL: postgresql://${POSTGRES_USER:-autoslot}:${POSTGRES_PASSWORD}@postgres:5432/booking
+      AVAILABILITY_URL: http://availability:8000
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      availability: { condition: service_healthy }
+
+  notification:
+    build: { context: ./services, args: { SERVICE: notification } }
+    image: autoslot/notification:2.1.0
+    restart: unless-stopped
+    deploy: *replicas
+    environment:
+      <<: [*python-env, *mail-env]
+      DATABASE_URL: postgresql://${POSTGRES_USER:-autoslot}:${POSTGRES_PASSWORD}@postgres:5432/notification
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+
+  gateway:
+    build: ./gateway
+    image: autoslot/gateway:2.1.0
+    restart: unless-stopped
+    ports:
+      - "${GATEWAY_PORT:-8080}:80"
+    depends_on:
+      auth: { condition: service_healthy }
+      catalog: { condition: service_healthy }
+      availability: { condition: service_healthy }
+      booking: { condition: service_healthy }
+      notification: { condition: service_healthy }
+
+  # ---- моніторинг (лабораторна робота 4), вмикається профілем monitoring ----
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles: [monitoring]
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d   # зберігати метрики 7 днів
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./monitoring/alerts.yml:/etc/prometheus/alerts.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"   # лише локально (на ВМ — через SSH-тунель)
+
+  grafana:
+    image: grafana/grafana:11.3.0
+    profiles: [monitoring]
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:?задайте GRAFANA_PASSWORD у файлі .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "${GRAFANA_PORT:-3000}:3000"
+    depends_on: [prometheus]
+
+volumes:
+  pgdata:
+  redisdata:
+  promdata:
+  grafanadata:

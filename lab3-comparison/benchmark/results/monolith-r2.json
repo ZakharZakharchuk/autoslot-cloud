@@ -1,0 +1,90 @@
+{
+  "label": "monolith-r2",
+  "base": "http://127.0.0.1:8001",
+  "started": "2026-10-11T15:11:46",
+  "scenarios": {
+    "services": {
+      "1": {
+        "requests": 600,
+        "errors": 0,
+        "rps": 280.5,
+        "mean_ms": 3.56,
+        "p50_ms": 3.28,
+        "p95_ms": 4.48,
+        "p99_ms": 7.66
+      },
+      "10": {
+        "requests": 600,
+        "errors": 0,
+        "rps": 190.3,
+        "mean_ms": 52.35,
+        "p50_ms": 42.99,
+        "p95_ms": 125.07,
+        "p99_ms": 169.52
+      },
+      "50": {
+        "requests": 600,
+        "errors": 0,
+        "rps": 134.4,
+        "mean_ms": 359.72,
+        "p50_ms": 261.93,
+        "p95_ms": 927.84,
+        "p99_ms": 1383.5
+      }
+    },
+    "availability": {
+      "1": {
+        "requests": 600,
+        "errors": 0,
+        "rps": 138.2,
+        "mean_ms": 7.23,
+        "p50_ms": 6.67,
+        "p95_ms": 9.25,
+        "p99_ms": 14.72
+      },
+      "10": {
+        "requests": 600,
+        "errors": 0,
+        "rps": 126.5,
+        "mean_ms": 78.64,
+        "p50_ms": 70.98,
+        "p95_ms": 149.02,
+        "p99_ms": 207.89
+      },
+      "50": {
+        "requests": 600,
+        "errors": 0,
+        "rps": 125.7,
+        "mean_ms": 387.1,
+        "p50_ms": 367.54,
+        "p95_ms": 650.24,
+        "p99_ms": 798.19
+      }
+    },
+    "booking": {
+      "1": {
+        "requests": 120,
+        "errors": 0,
+        "rps": 79.7,
+        "mean_ms": 12.54,
+        "p50_ms": 11.99,
+        "p95_ms": 16.41,
+        "p99_ms": 22.98
+      },
+      "10": {
+        "requests": 120,
+        "errors": 0,
+        "rps": 78.9,
+        "mean_ms": 123.4,
+        "p50_ms": 117.4,
+        "p95_ms": 226.94,
+        "p99_ms": 278.59
+      }
+    },
+    "notify-delay": {
+      "samples": 20,
+      "p50_ms": 17.8,
+      "max_ms": 31.6
+    }
+  }
+}

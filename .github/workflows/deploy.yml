@@ -1,0 +1,60 @@
+# Безперервне розгортання: після успішного CI на гілці main оновлює застосунок на ВМ.
+# Потрібні секрети репозиторію (Settings -> Secrets and variables -> Actions):
+#   DEPLOY_HOST    — IP-адреса ВМ (вивід terraform output public_ip)
+#   DEPLOY_SSH_KEY — приватний SSH-ключ (вміст ~/.ssh/autoslot)
+# Без секретів розгортання пропускається.
+name: Deploy
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false   # два розгортання одночасно не запускаються
+
+jobs:
+  deploy:
+    name: Оновлення на ВМ
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-24.04
+    env:
+      HOST: ${{ secrets.DEPLOY_HOST }}
+      SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - name: Чи налаштовано розгортання
+        id: check
+        run: |
+          if [ -z "$HOST" ]; then
+            echo "::notice::Секрет DEPLOY_HOST не задано — розгортання пропущено"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: SSH-ключ
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          install -m 700 -d ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+      - name: Оновлення коду й перезапуск змінених контейнерів
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          ssh ubuntu@"$HOST" "set -e
+            cd /opt/autoslot
+            git fetch --quiet origin
+            git checkout --quiet $SHA
+            cd lab2-containers
+            docker compose --profile monitoring up -d --build --wait --wait-timeout 300
+            docker image prune -f"
+      - name: Перевірка, що сайт відповідає
+        if: steps.check.outputs.skip != 'true'
+        run: |
+          curl -fsS "http://$HOST:8080/api/health"
+          curl -fsS "http://$HOST:8080/api/services" > /dev/null
+          echo "Розгорнуто коміт $SHA"

@@ -1,0 +1,34 @@
+# Правила сповіщень. Стан видно в Prometheus (Alerts) і на дашборді Grafana.
+groups:
+  - name: autoslot
+    rules:
+      - alert: ReplicaDown
+        expr: up{job="autoslot"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations:
+          summary: "Репліка {{ $labels.service }} ({{ $labels.instance }}) не відповідає"
+
+      - alert: HighErrorRate
+        expr: |
+          sum by (service) (rate(http_requests_total{status=~"5.."}[5m]))
+            / sum by (service) (rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "Понад 5% відповідей {{ $labels.service }} — помилки 5xx"
+
+      - alert: SlowResponses
+        expr: |
+          histogram_quantile(0.95, sum by (service, le) (rate(http_request_duration_seconds_bucket[5m]))) > 0.5
+        for: 5m
+        labels: { severity: warning }
+        annotations:
+          summary: "95-й перцентиль часу відповіді {{ $labels.service }} понад 0,5 с"
+
+      - alert: LoginBruteForce
+        expr: sum(rate(auth_login_failures_total[5m])) * 60 > 20
+        for: 2m
+        labels: { severity: warning }
+        annotations:
+          summary: "Понад 20 невдалих спроб входу за хвилину — можливий перебір кодів"

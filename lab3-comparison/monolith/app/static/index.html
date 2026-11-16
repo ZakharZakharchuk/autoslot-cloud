@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>AutoSlot — запис на СТО</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --asphalt: #2B3036;
+    --asphalt-soft: #545B63;
+    --floor: #E4E6E3;
+    --panel: #F7F8F6;
+    --ticket: #FFFFFF;
+    --amber: #F2B705;
+    --teal: #1F7A6D;
+    --red: #B3261E;
+    --line: #C9CDC8;
+    --display: "Barlow Condensed", "Arial Narrow", "Roboto Condensed", sans-serif;
+    --body: "Barlow", "Segoe UI", Roboto, Arial, sans-serif;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --asphalt: #E6E8E5; --asphalt-soft: #A9AFB5; --floor: #1E2226; --panel: #262B30;
+      --ticket: #2E3439; --line: #3C434A; --teal: #4FB3A3; --red: #F08A80;
+    }
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  body { margin: 0; background: var(--floor); color: var(--asphalt); font: 400 17px/1.5 var(--body); }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 24px 20px 64px; }
+
+  header.top { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 28px; }
+  .brand { font: 700 34px/1 var(--display); letter-spacing: .01em; margin: 0; }
+  .brand span { background: var(--amber); color: #2B3036; padding: 0 6px; }
+  .tagline { margin: 0; color: var(--asphalt-soft); }
+
+  .layout { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 28px; align-items: start; }
+  @media (max-width: 880px) { .layout { grid-template-columns: minmax(0, 1fr); } }
+
+  section.step { margin-bottom: 32px; }
+  h2 { font: 700 24px/1.2 var(--display); margin: 0 0 12px; display: flex; gap: 10px; align-items: baseline; }
+  h2 .n { color: var(--asphalt-soft); font-weight: 600; }
+
+  .services { display: grid; gap: 8px; }
+  .svc { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 16px; align-items: center; text-align: left;
+         background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px;
+         font: inherit; color: inherit; cursor: pointer; }
+  .svc small { display: block; color: var(--asphalt-soft); font-size: 14px; }
+  .svc .dur, .svc .price { font: 600 18px/1 var(--display); white-space: nowrap; }
+  .svc[aria-pressed="true"] { border-color: var(--asphalt); box-shadow: inset 4px 0 0 var(--amber); }
+
+  .days { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; }
+  .day { flex: 0 0 64px; background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 8px 4px;
+         font: inherit; color: inherit; cursor: pointer; text-align: center; }
+  .day b { display: block; font: 700 22px/1 var(--display); }
+  .day small { color: var(--asphalt-soft); font-size: 13px; }
+  .day[aria-pressed="true"] { background: var(--asphalt); color: var(--floor); border-color: var(--asphalt); }
+  .day[aria-pressed="true"] small { color: inherit; }
+
+  .master { margin-bottom: 16px; }
+  .master h3 { font: 600 18px/1.2 var(--body); margin: 0 0 8px; }
+  .times { display: flex; flex-wrap: wrap; gap: 6px; }
+  .time { min-width: 72px; padding: 8px 10px; background: var(--ticket); border: 1px solid var(--line); border-radius: 4px;
+          font: 600 19px/1 var(--display); color: inherit; cursor: pointer; }
+  .time[aria-pressed="true"] { background: var(--amber); border-color: var(--amber); color: #2B3036; }
+  .hint { color: var(--asphalt-soft); margin: 0; }
+
+  /* Талон на ремонт — головний елемент сторінки */
+  .ticket { position: sticky; top: calc(16px + env(safe-area-inset-top, 0px)); background: var(--ticket); border-radius: 6px;
+            box-shadow: 0 1px 0 var(--line), 0 12px 28px rgba(30, 34, 38, .14); overflow: hidden; }
+  .ticket .stripe { height: 14px; background: repeating-linear-gradient(-45deg, var(--amber) 0 14px, #2B3036 14px 28px); }
+  .ticket .body { padding: 18px 20px 20px; }
+  .ticket h2 { margin-bottom: 4px; }
+  .ticket dl { margin: 12px 0 16px; display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; }
+  .ticket dt { color: var(--asphalt-soft); font-size: 14px; }
+  .ticket dd { margin: 0; font-weight: 500; }
+  .perf { border: 0; border-top: 2px dashed var(--line); margin: 16px -20px; }
+  label { display: block; font-size: 14px; color: var(--asphalt-soft); margin-bottom: 4px; }
+  input { width: 100%; font: inherit; color: inherit; background: var(--panel); border: 1px solid var(--line);
+          border-radius: 4px; padding: 9px 10px; margin-bottom: 12px; }
+  .btn { width: 100%; font: 700 20px/1 var(--display); letter-spacing: .02em; padding: 13px; border: 0; border-radius: 4px;
+         background: var(--asphalt); color: var(--floor); cursor: pointer; }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+  .btn.ghost { background: transparent; color: inherit; border: 1px solid var(--line); font-size: 17px; padding: 9px; width: auto; }
+  .msg { margin: 12px 0 0; font-weight: 500; }
+  .msg.ok { color: var(--teal); }
+  .msg.err { color: var(--red); }
+
+  .mine { margin-top: 8px; }
+  .lookup { display: flex; gap: 8px; max-width: 460px; }
+  .lookup input { margin: 0; }
+  .lookup .btn { width: auto; font-size: 18px; padding: 0 18px; }
+  .rows { margin-top: 14px; display: grid; gap: 8px; }
+  .row { display: grid; grid-template-columns: 120px 1fr auto; gap: 14px; align-items: center; background: var(--panel);
+         border: 1px solid var(--line); border-radius: 6px; padding: 10px 14px; }
+  .row .when { font: 700 20px/1.1 var(--display); }
+  .row .when small { display: block; font: 400 14px/1.3 var(--body); color: var(--asphalt-soft); }
+  .row.cancelled { opacity: .55; }
+  .row.cancelled .what::after { content: ", скасовано"; color: var(--red); }
+  @media (max-width: 560px) { .row { grid-template-columns: 1fr; } }
+  .notes { margin-top: 14px; font-size: 15px; color: var(--asphalt-soft); }
+  .notes li { margin-bottom: 4px; }
+  footer { margin-top: 48px; font-size: 14px; color: var(--asphalt-soft); }
+  footer a { color: inherit; }
+
+  :focus-visible { outline: 3px solid var(--amber); outline-offset: 2px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .ticket.flash .stripe { animation: slide .6s linear 2; }
+    @keyframes slide { to { background-position: 40px 0; } }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <h1 class="brand">Auto<span>Slot</span></h1>
+    <p class="tagline">Запис на СТО без дзвінків: послуга, день, вільний майстер.</p>
+  </header>
+
+  <div class="layout">
+    <main>
+      <section class="step" aria-labelledby="h-svc">
+        <h2 id="h-svc"><span class="n">1</span> Що робимо</h2>
+        <div class="services" id="services"><p class="hint">Завантажуємо послуги…</p></div>
+      </section>
+
+      <section class="step" aria-labelledby="h-day">
+        <h2 id="h-day"><span class="n">2</span> Коли зручно</h2>
+        <div class="days" id="days"></div>
+      </section>
+
+      <section class="step" aria-labelledby="h-time">
+        <h2 id="h-time"><span class="n">3</span> Вільний час</h2>
+        <div id="slots"><p class="hint">Оберіть послугу й день — покажемо вільні вікна майстрів.</p></div>
+      </section>
+
+      <section class="mine" aria-labelledby="h-mine">
+        <h2 id="h-mine">Мої записи</h2>
+        <form class="lookup" id="lookup">
+          <input id="lookup-phone" type="tel" placeholder="+380 67 123 45 67" aria-label="Телефон" required>
+          <button class="btn" type="submit">Показати</button>
+        </form>
+        <div class="rows" id="my-bookings"></div>
+        <ul class="notes" id="notifications" hidden></ul>
+      </section>
+    </main>
+
+    <aside class="ticket" id="ticket" aria-labelledby="h-ticket">
+      <div class="stripe"></div>
+      <div class="body">
+        <h2 id="h-ticket">Талон на ремонт</h2>
+        <dl>
+          <dt>Послуга</dt><dd id="t-svc">—</dd>
+          <dt>День</dt><dd id="t-day">—</dd>
+          <dt>Час</dt><dd id="t-time">—</dd>
+          <dt>Майстер</dt><dd id="t-master">—</dd>
+          <dt>Вартість</dt><dd id="t-price">—</dd>
+        </dl>
+        <hr class="perf">
+        <form id="book">
+          <label for="name">Ім'я</label>
+          <input id="name" autocomplete="name" required minlength="2">
+          <label for="phone">Телефон</label>
+          <input id="phone" type="tel" autocomplete="tel" placeholder="+380 67 123 45 67" required>
+          <button class="btn" id="book-btn" type="submit" disabled>Записатися</button>
+        </form>
+        <p class="msg" id="msg" role="status"></p>
+      </div>
+    </aside>
+  </div>
+
+  <footer><a href="/docs">Документація API</a> <span id="ver"></span></footer>
+</div>
+
+<script>
+const state = { services: [], service: null, day: null, slot: null };
+const $ = (id) => document.getElementById(id);
+const dayFmt = new Intl.DateTimeFormat("uk-UA", { weekday: "short" });
+const longDay = new Intl.DateTimeFormat("uk-UA", { weekday: "long", day: "numeric", month: "long" });
+const hm = (iso) => iso.slice(11, 16);
+const isoDate = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, { headers: { "Content-Type": "application/json" }, ...opts });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const detail = Array.isArray(data.detail) ? "Перевірте ім'я та номер телефону" : data.detail;
+    throw new Error(detail || `Помилка ${res.status}`);
+  }
+  return data;
+}
+
+function press(container, btn) {
+  container.querySelectorAll("[aria-pressed]").forEach((b) => b.setAttribute("aria-pressed", "false"));
+  if (btn) btn.setAttribute("aria-pressed", "true");
+}
+
+function renderTicket() {
+  const s = state.service, sl = state.slot;
+  $("t-svc").textContent = s ? s.name : "—";
+  $("t-day").textContent = state.day ? longDay.format(new Date(state.day + "T12:00")) : "—";
+  $("t-time").textContent = sl ? `${hm(sl.start)}–${hm(sl.end)}` : "—";
+  $("t-master").textContent = sl ? sl.masterName : "—";
+  $("t-price").textContent = s ? `${s.priceUah} грн` : "—";
+  $("book-btn").disabled = !sl;
+}
+
+async function loadServices() {
+  state.services = await api("/api/services");
+  const box = $("services");
+  box.innerHTML = "";
+  for (const s of state.services) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "svc"; b.setAttribute("aria-pressed", "false");
+    b.innerHTML = `<span>${s.name}<small>${s.category}</small></span><span class="dur">${s.durationMin} хв</span><span class="price">${s.priceUah} грн</span>`;
+    b.onclick = () => { state.service = s; state.slot = null; press(box, b); renderTicket(); loadSlots(); };
+    box.append(b);
+  }
+}
+
+function renderDays() {
+  const box = $("days");
+  const today = new Date();
+  for (let i = 0; i < 14; i++) {
+    const d = new Date(today); d.setDate(today.getDate() + i);
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "day"; b.setAttribute("aria-pressed", "false");
+    b.innerHTML = `<small>${i === 0 ? "сьогодні" : dayFmt.format(d)}</small><b>${d.getDate()}</b>`;
+    b.setAttribute("aria-label", longDay.format(d));
+    b.onclick = () => { state.day = isoDate(d); state.slot = null; press(box, b); renderTicket(); loadSlots(); };
+    box.append(b);
+  }
+}
+
+async function loadSlots() {
+  const box = $("slots");
+  if (!state.service || !state.day) return;
+  box.innerHTML = `<p class="hint">Шукаємо вільний час…</p>`;
+  try {
+    const slots = await api(`/api/availability?serviceId=${encodeURIComponent(state.service.id)}&date=${state.day}`);
+    if (!slots.length) { box.innerHTML = `<p class="hint">На цей день вільних вікон немає. Спробуйте інший день.</p>`; return; }
+    const byMaster = new Map();
+    for (const sl of slots) {
+      if (!byMaster.has(sl.masterId)) byMaster.set(sl.masterId, []);
+      byMaster.get(sl.masterId).push(sl);
+    }
+    box.innerHTML = "";
+    for (const list of byMaster.values()) {
+      const wrap = document.createElement("div"); wrap.className = "master";
+      wrap.innerHTML = `<h3>${list[0].masterName}</h3>`;
+      const times = document.createElement("div"); times.className = "times";
+      for (const sl of list) {
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "time"; b.textContent = hm(sl.start); b.setAttribute("aria-pressed", "false");
+        b.onclick = () => { state.slot = sl; press(box, b); renderTicket(); };
+        times.append(b);
+      }
+      wrap.append(times); box.append(wrap);
+    }
+  } catch (e) { box.innerHTML = `<p class="msg err">${e.message}</p>`; }
+}
+
+$("book").onsubmit = async (ev) => {
+  ev.preventDefault();
+  const msg = $("msg"); msg.className = "msg"; msg.textContent = "";
+  try {
+    const b = await api("/api/bookings", { method: "POST", body: JSON.stringify({
+      serviceId: state.service.id, masterId: state.slot.masterId, start: state.slot.start,
+      clientName: $("name").value, phone: $("phone").value }) });
+    msg.className = "msg ok";
+    msg.textContent = `Записали: ${longDay.format(new Date(b.start))}, ${hm(b.start)}. Майстер — ${b.masterName}.`;
+    $("ticket").classList.add("flash"); setTimeout(() => $("ticket").classList.remove("flash"), 1300);
+    $("lookup-phone").value = $("phone").value;
+    state.slot = null; renderTicket(); loadSlots(); loadMine();
+  } catch (e) { msg.className = "msg err"; msg.textContent = e.message; loadSlots(); }
+};
+
+async function loadMine() {
+  const phone = $("lookup-phone").value.trim();
+  const box = $("my-bookings");
+  if (!phone) return;
+  try {
+    const list = await api(`/api/bookings?phone=${encodeURIComponent(phone)}`);
+    box.innerHTML = list.length ? "" : `<p class="hint">За цим номером записів немає.</p>`;
+    for (const b of list) {
+      const row = document.createElement("div");
+      row.className = "row" + (b.status === "CANCELLED" ? " cancelled" : "");
+      row.innerHTML = `<div class="when">${hm(b.start)}<small>${longDay.format(new Date(b.start))}</small></div>
+        <div class="what">${b.serviceName}, ${b.masterName}, ${b.priceUah} грн</div>`;
+      if (b.status !== "CANCELLED") {
+        const c = document.createElement("button");
+        c.type = "button"; c.className = "btn ghost"; c.textContent = "Скасувати запис";
+        c.onclick = async () => { await api(`/api/bookings/${b.id}/cancel`, { method: "POST" }); loadMine(); loadSlots(); };
+        row.append(c);
+      }
+      box.append(row);
+    }
+    loadNotifications(phone);
+  } catch (e) { box.innerHTML = `<p class="msg err">${e.message}</p>`; }
+}
+
+// Сповіщення є лише в контейнерній версії (лаб. 2); у версії з лаб. 1 блок прихований.
+async function loadNotifications(phone) {
+  const box = $("notifications");
+  try {
+    const res = await fetch(`/api/notifications?phone=${encodeURIComponent(phone)}`);
+    if (!res.ok) return;
+    const list = await res.json();
+    box.hidden = !list.length;
+    box.innerHTML = list.map((n) => {
+      const when = n.status === "SCHEDULED" ? `заплановано на ${hm(n.sendAt)}, ${longDay.format(new Date(n.sendAt))}` : "надіслано";
+      return `<li>SMS, ${when}: ${n.text}</li>`;
+    }).join("");
+  } catch { /* сервіс сповіщень недоступний — нічого не показуємо */ }
+}
+
+$("lookup").onsubmit = (ev) => { ev.preventDefault(); loadMine(); };
+
+renderDays();
+renderTicket();
+loadServices().catch((e) => { $("services").innerHTML = `<p class="msg err">Сервер недоступний: ${e.message}</p>`; });
+api("/api/health").then((h) => { $("ver").textContent = `версія ${h.version}`; }).catch(() => {});
+</script>
+</body>
+</html>

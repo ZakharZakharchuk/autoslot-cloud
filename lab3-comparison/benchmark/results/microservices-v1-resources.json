@@ -1,0 +1,36 @@
+{
+  "label": "microservices",
+  "wall_s": 120.9,
+  "processes": {
+    "gateway": {
+      "cpu_s": 0.85,
+      "idle_rss_mb": 5.3,
+      "peak_rss_mb": 7.6
+    },
+    "catalog": {
+      "cpu_s": 10.98,
+      "idle_rss_mb": 81.8,
+      "peak_rss_mb": 86.0
+    },
+    "availability": {
+      "cpu_s": 74.63,
+      "idle_rss_mb": 89.8,
+      "peak_rss_mb": 145.8
+    },
+    "booking": {
+      "cpu_s": 8.76,
+      "idle_rss_mb": 89.6,
+      "peak_rss_mb": 145.0
+    },
+    "notification": {
+      "cpu_s": 1.3,
+      "idle_rss_mb": 87.4,
+      "peak_rss_mb": 87.8
+    },
+    "redis": {
+      "cpu_s": 0.26,
+      "idle_rss_mb": 7.2,
+      "peak_rss_mb": 7.3
+    }
+  }
+}

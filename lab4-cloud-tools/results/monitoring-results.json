@@ -1,0 +1,40 @@
+{
+  "peak_rps": {
+    "catalog": 17.2,
+    "availability": 17.2,
+    "auth": 6.2,
+    "booking": 5.5
+  },
+  "p95_ms_during_load": {
+    "catalog": 20.6,
+    "auth": 4.9,
+    "availability": 46.5,
+    "booking": 47.6
+  },
+  "memory_mb_per_replica": {
+    "auth 127.0.0.1:8115": 87.9,
+    "auth 127.0.0.1:8105": 87.9,
+    "booking 127.0.0.1:8103": 89.9,
+    "booking 127.0.0.1:8113": 89.8,
+    "catalog 127.0.0.1:8111": 80.6,
+    "notification 127.0.0.1:8114": 84.0,
+    "notification 127.0.0.1:8104": 83.7,
+    "availability 127.0.0.1:8102": 89.4,
+    "catalog 127.0.0.1:8101": 81.8,
+    "availability 127.0.0.1:8112": 89.2
+  },
+  "auth_share_of_requests": 0.13,
+  "load_script": {
+    "duration_min": 3,
+    "users": 3,
+    "requests": 6044,
+    "bookings": 359,
+    "cancels": 108
+  },
+  "replica_down_test": {
+    "killed": "booking 127.0.0.1:8113",
+    "alert": "ReplicaDown",
+    "state_after_85s": "firing",
+    "alert_for": "1m"
+  }
+}
