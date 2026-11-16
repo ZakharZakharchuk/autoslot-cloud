@@ -53,10 +53,15 @@ data "aws_iam_policy_document" "deploy_assume" {
       variable = "token.actions.githubusercontent.com:aud"
       values   = ["sts.amazonaws.com"]
     }
+    # Два формати subject: класичний (repo:owner/repo:...) і незмінний з ID,
+    # який GitHub вмикає для нових репозиторіїв (repo:owner@123/repo@456:...)
     condition {
-      test     = "StringEquals"
+      test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = ["repo:${local.github_repo}:ref:refs/heads/main"]
+      values = [
+        "repo:${local.github_repo}:ref:refs/heads/main",
+        "repo:${split("/", local.github_repo)[0]}@*/${split("/", local.github_repo)[1]}@*:ref:refs/heads/main",
+      ]
     }
   }
 }
